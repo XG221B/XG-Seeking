@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "local": "node local-server.mjs",
     "web:dev": "vite --host 127.0.0.1 --port 1420",
     "web:build": "vite build",
     "web:preview": "vite preview --host 127.0.0.1"

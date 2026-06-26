@@ -1,8 +1,30 @@
-import { invoke } from "@tauri-apps/api/core";
 import "./styles.css";
 
 const app = document.getElementById("app");
 const navButtons = Array.from(document.querySelectorAll(".nav button"));
+const isTauri = Boolean(window.__TAURI_INTERNALS__);
+let tauriInvoke = null;
+
+async function invoke(command, payload = {}) {
+  if (isTauri) {
+    if (!tauriInvoke) {
+      tauriInvoke = (await import("@tauri-apps/api/core")).invoke;
+    }
+    return tauriInvoke(command, payload);
+  }
+
+  const response = await fetch(`/api/${command}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return response.status === 204 ? null : response.json();
+}
 
 const state = {
   page: "home",
