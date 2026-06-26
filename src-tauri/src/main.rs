@@ -110,7 +110,7 @@ fn serialize_note(title: &str, body: &str) -> String {
 fn read_note(app: &AppHandle, id: &str) -> Result<Note, String> {
     let path = note_path(app, id)?;
     let markdown = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-    parse_note(id.into(), markdown, modified_millis(&path)?)
+    Ok(parse_note(id.into(), markdown, modified_millis(&path)?))
 }
 
 #[tauri::command]
