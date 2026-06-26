@@ -24,7 +24,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && format('manual-{0}', github.run_number) || github.ref_name }}
-          releaseName: ${{ github.event_name == 'workflow_dispatch' && format('XG221B manual build #{0}', github.run_number) || format('XG221B {0}', github.ref_name) }}
+          releaseName: ${{ github.event_name == 'workflow_dispatch' && format('XG221B manual build {0}', github.run_number) || format('XG221B {0}', github.ref_name) }}
           releaseBody: |
             XG221B is a lightweight local-first desktop notes app.
 
