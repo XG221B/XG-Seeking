@@ -2,6 +2,12 @@
 
 XG221B is a lightweight local-first desktop notes app. It started as a personal web notebook and is being shaped into a reusable template-style application that people can install, customize, and extend.
 
+## Disclaimer
+
+This project was created for fun with the help of Codex. It is a personal experiment, not a polished commercial product or professional software release.
+
+Use it at your own risk. I do not provide any warranty, guarantee, or formal support. If something breaks, data is lost, or the app behaves unexpectedly, please do not hold me responsible.
+
 ## Current Features
 
 - Four-slot top navigation for future personal modules
@@ -50,6 +56,3 @@ The intended GitHub release flow is:
 - publish installers in GitHub Releases
 - keep `CHANGELOG.md` updated for each version
 
-## License
-
-MIT
