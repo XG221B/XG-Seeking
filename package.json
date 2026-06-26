@@ -1,0 +1,23 @@
+{
+  "name": "xg221b",
+  "version": "0.1.0",
+  "description": "A lightweight local-first desktop notes app.",
+  "private": true,
+  "type": "module",
+  "author": "XG221B",
+  "license": "MIT",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "web:dev": "vite --host 127.0.0.1 --port 1420",
+    "web:build": "vite build",
+    "web:preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "vite": "^7.1.7"
+  }
+}
