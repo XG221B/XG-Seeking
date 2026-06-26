@@ -1,6 +1,6 @@
-# XG221B
+# XG Seeking
 
-XG221B is a lightweight local-first desktop notes app. It started as a personal web notebook and is being shaped into a reusable template-style application that people can install, customize, and extend.
+XG Seeking is a lightweight local-first desktop notes app. It started as a personal web notebook and is being shaped into a reusable template-style application that people can install, customize, and extend.
 
 ## Disclaimer
 
