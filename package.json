@@ -7,6 +7,7 @@
   "author": "XG221B",
   "license": "MIT",
   "scripts": {
+    "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
     "local": "node local-server.mjs",
