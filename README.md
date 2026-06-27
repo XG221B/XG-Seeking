@@ -6,7 +6,7 @@ XG Seeking is a lightweight local-first desktop notes app. It started as a perso
 
 This project was created for fun with the help of Codex. It is a personal experiment, even not a real product.
 
-Use it at your own risk. I do not provide any warranty, guarantee, or formal support. If something breaks, data is lost, or the app behaves unexpectedly, please do not hold me responsible.
+Use it at your own risk. I do not provide any warranty, guarantee, or formal support. If something breaks, data is lost, or the app behaves unexpectedly, please do not hold me responsible.:broken_heart:
 
 ## Current Features
 
