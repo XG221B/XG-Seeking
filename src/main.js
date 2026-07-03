@@ -18,7 +18,7 @@ const STRINGS = {
     mindmapHint: "选择一个导图或新建",
     mindmapBack: "返回导图",
     mindmapAddChild: "添加子节点",
-    mindmapAddSibling: "添加兄弟节点",
+    mindmapAddSibling: "添加同级节点",
     mindmapDeleteNode: "删除节点",
     mindmapShortcuts: "Tab 子节点 · Enter 同级节点 · Delete 删除 · 点选再点改名 · 右键菜单",
     settings: "设置",
