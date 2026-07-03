@@ -486,11 +486,21 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 
 .mm-text { color: var(--color-text); font-size: 15px; line-height: 1.5; }
 
+.mm-bullet {
+  color: var(--color-text-dim);
+  font-size: 13px;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+}
+
 .mm-edit-input {
   flex: 1; min-width: 0; padding: 3px 8px;
   border: 1px solid var(--accent); border-radius: 4px;
   background: var(--color-surface); color: var(--color-text);
-  font-size: 15px; outline: none;
+  font-family: var(--font-main); font-size: 15px; line-height: 1.5;
+  outline: none; resize: none; overflow: hidden;
 }
 
 /* context menu */

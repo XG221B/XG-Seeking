@@ -872,11 +872,10 @@ function bindMindmapEvents() {
     });
   });
 
-  // Inline edit: commit on blur / Enter / Escape
+  // Inline edit: textarea for multi-line, Ctrl+Enter to commit
   const editInput = document.querySelector(".mm-edit-input");
   if (editInput) {
     editInput.focus();
-    editInput.select();
     const commitEdit = () => {
       const node = findNodeInList(mm.nodes, editInput.dataset.nodeId);
       if (node) { node.text = editInput.value.trim() || " "; scheduleMindmapSave(mm); }
@@ -885,7 +884,7 @@ function bindMindmapEvents() {
     };
     editInput.addEventListener("blur", () => setTimeout(commitEdit, 50));
     editInput.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") { ev.preventDefault(); commitEdit(); }
+      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); commitEdit(); }
       if (ev.key === "Escape") { state.editingNode = false; renderMindmaps(); }
     });
   }
@@ -923,17 +922,22 @@ function renderNodes(nodes, depth = 0) {
   return nodes.map((node) => renderNode(node, depth)).join("");
 }
 
+const BULLETS = ["•", "◦", "▪", "▸"];
+
 function renderNode(node, depth = 0) {
   const hasChildren = node.children.length > 0;
   const isEditing = state.editingNode && state.selectedNodeId === node.id;
+  const bullet = BULLETS[depth % BULLETS.length];
+  const textContent = escapeHtml(node.text).replace(/\n/g, "<br>");
   return `<div class="mm-node-wrapper" style="margin-left: ${depth * 24}px" data-node-id="${node.id}">
     <div class="mm-node ${state.selectedNodeId === node.id ? "selected" : ""}">
       ${hasChildren
         ? `<button class="mm-toggle" data-toggle="${node.id}">${node.collapsed ? "▸" : "▾"}</button>`
         : `<span class="mm-toggle-spacer"></span>`}
+      <span class="mm-bullet">${bullet}</span>
       ${isEditing
-        ? `<input class="mm-edit-input" value="${escapeHtml(node.text)}" data-node-id="${node.id}">`
-        : `<span class="mm-text">${escapeHtml(node.text)}</span>`}
+        ? `<textarea class="mm-edit-input" data-node-id="${node.id}" rows="1">${escapeHtml(node.text)}</textarea>`
+        : `<span class="mm-text">${textContent}</span>`}
     </div>
     ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}
   </div>`;
@@ -943,7 +947,7 @@ function mindmapKeyHandler(e) {
   if (state.page !== "mindmaps" || state.showMindmapTrash) return;
   const mm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
   if (!mm) return;
-  if (e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
   if (e.key === "Tab") { e.preventDefault(); addChildNode(mm); }
   if (e.key === "Enter") { e.preventDefault(); addSiblingNode(mm); }
   if (e.key === "Delete" && state.selectedNodeId) { e.preventDefault(); deleteNode(mm); }
