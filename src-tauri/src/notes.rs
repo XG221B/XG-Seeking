@@ -153,11 +153,30 @@ pub fn list_notes(app_data: &PathBuf) -> Result<Vec<Note>, String> {
     list_notes_in(&notes_dir(app_data))
 }
 
+const MAX_TITLE_LEN: usize = 500;
+const MAX_BODY_LEN: usize = 100_000;
+
+fn validate_note_content(title: &str, body: &str) -> Result<(), String> {
+    if title.len() > MAX_TITLE_LEN {
+        return Err(format!("Title too long (max {MAX_TITLE_LEN} chars)"));
+    }
+    if body.len() > MAX_BODY_LEN {
+        return Err(format!("Body too long (max {MAX_BODY_LEN} chars)"));
+    }
+    Ok(())
+}
+
 pub fn create_note(app_data: &PathBuf) -> Result<Note, String> {
     let id = format!("note-{}", now_millis()?);
+    let ts = now_millis()?;
     let path = note_path(app_data, &id)?;
     fs::write(path, serialize_note("未命名想法", "")).map_err(|e| e.to_string())?;
-    read_note_from(&note_path(app_data, &id)?, &id)
+    Ok(Note {
+        id,
+        title: "未命名想法".into(),
+        body: String::new(),
+        updated_at: ts,
+    })
 }
 
 pub fn save_note(
@@ -166,9 +185,15 @@ pub fn save_note(
     title: String,
     body: String,
 ) -> Result<Note, String> {
+    validate_note_content(&title, &body)?;
     let path = note_path(app_data, &id)?;
     fs::write(path, serialize_note(&title, &body)).map_err(|e| e.to_string())?;
-    read_note_from(&note_path(app_data, &id)?, &id)
+    Ok(Note {
+        id,
+        title,
+        body,
+        updated_at: now_millis()?,
+    })
 }
 
 /// Soft-delete: move the note from notes/ to trash/

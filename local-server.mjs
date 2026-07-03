@@ -110,10 +110,24 @@ async function saveSettings(settings) {
   await writeFile(settingsFile, JSON.stringify(settings, null, 2), "utf8");
 }
 
+const MAX_BODY = 1_048_576; // 1 MB
+const MAX_TITLE_LEN = 500;
+const MAX_BODY_LEN = 100_000;
+
 async function readJson(request) {
   const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > MAX_BODY) throw new Error("Request body too large");
+    chunks.push(chunk);
+  }
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
+}
+
+function validateNoteContent(title, body) {
+  if (title && title.length > MAX_TITLE_LEN) throw new Error(`Title too long (max ${MAX_TITLE_LEN})`);
+  if (body && body.length > MAX_BODY_LEN) throw new Error(`Body too long (max ${MAX_BODY_LEN})`);
 }
 
 function sendJson(response, value) {
@@ -121,8 +135,8 @@ function sendJson(response, value) {
   response.end(JSON.stringify(value));
 }
 
-function sendError(response, error) {
-  response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+function sendError(response, error, code = 500) {
+  response.writeHead(code, { "Content-Type": "text/plain; charset=utf-8" });
   response.end(error instanceof Error ? error.message : String(error));
 }
 
@@ -139,6 +153,7 @@ async function handleApi(request, response) {
   }
 
   if (command === "save_note") {
+    validateNoteContent(body.title, body.body);
     await writeFile(notePath(body.id), serializeNote(body.title, body.body), "utf8");
     return sendJson(response, await readNote(body.id));
   }

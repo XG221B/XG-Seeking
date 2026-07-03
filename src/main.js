@@ -135,9 +135,36 @@ const state = {
   showTrash: false,
   trashNotes: [],
   settings: { language: "zh", title: t("appTitle") },
+  previewMode: false,
 };
 
 let autoSaveTimer = 0;
+
+// ── Markdown preview ──
+
+function renderMd(text) {
+  let html = escapeHtml(text);
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold / italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  // Paragraphs (double newline)
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  // Clean empty paragraphs
+  html = html.replace(/<p><\/p>/g, '');
+  return html;
+}
 
 // ── Helpers ──
 
@@ -394,7 +421,12 @@ function renderNotes() {
 function renderEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
-    `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>` +
+    (state.previewMode
+      ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
+      : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
+    `<div class="editor-toolbar">
+      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? "Edit" : "Preview"}">${state.previewMode ? "✎" : "👁"}</button>
+    </div>` +
   `</div>`;
 }
 
@@ -472,6 +504,14 @@ function bindNotesEvents() {
   if (!state.showTrash) {
     const createButtons = [document.getElementById("new"), document.getElementById("emptyNew")].filter(Boolean);
     createButtons.forEach((button) => button.addEventListener("click", createNote));
+
+    const togglePreview = document.getElementById("togglePreview");
+    if (togglePreview) {
+      togglePreview.addEventListener("click", () => {
+        state.previewMode = !state.previewMode;
+        renderNotes();
+      });
+    }
   } else {
     const restoreBtn = document.getElementById("restoreBtn");
     if (restoreBtn) {
@@ -674,6 +714,21 @@ async function clearAllTrash() {
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => setPage(button.dataset.page));
+});
+
+// Keyboard shortcuts (global)
+document.addEventListener("keydown", (event) => {
+  // Ignore when typing in inputs
+  if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
+
+  if (event.ctrlKey && event.key === "n") {
+    event.preventDefault();
+    if (state.page === "notes" && !state.showTrash) createNote();
+  }
+  if (event.key === "Delete" && state.page === "notes" && state.selectedId && !state.showTrash) {
+    event.preventDefault();
+    trashNote(state.selectedId);
+  }
 });
 
 (async function init() {
