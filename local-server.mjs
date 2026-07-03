@@ -1,19 +1,25 @@
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 
 const port = 1420;
 const root = process.cwd();
 const distDir = join(root, "dist");
-const notesDir = join(root, "local-data", "notes");
+const dataDir = join(root, "local-data");
+const notesDir = join(dataDir, "notes");
+const trashDir = join(dataDir, "trash");
+const settingsFile = join(dataDir, "settings.json");
+
+const defaultSettings = { language: "zh", title: "寻找心灵的碎片..." };
 
 if (!existsSync(join(distDir, "index.html"))) {
   execFileSync("npm.cmd", ["run", "web:build"], { cwd: root, stdio: "ignore" });
 }
 
 await mkdir(notesDir, { recursive: true });
+await mkdir(trashDir, { recursive: true });
 
 function nowMillis() {
   return Date.now();
@@ -28,6 +34,11 @@ function ensureId(id) {
 function notePath(id) {
   ensureId(id);
   return join(notesDir, `${id}.md`);
+}
+
+function trashNotePath(id) {
+  ensureId(id);
+  return join(trashDir, `${id}.md`);
 }
 
 function parseNote(id, markdown, updatedAt) {
@@ -55,6 +66,12 @@ async function readNote(id) {
   return parseNote(id, markdown, info.mtimeMs);
 }
 
+async function readTrashNote(id) {
+  const file = trashNotePath(id);
+  const [markdown, info] = await Promise.all([readFile(file, "utf8"), stat(file)]);
+  return parseNote(id, markdown, info.mtimeMs);
+}
+
 async function listNotes() {
   const files = await readdir(notesDir);
   const notes = await Promise.all(
@@ -63,6 +80,34 @@ async function listNotes() {
       .map((file) => readNote(file.slice(0, -3))),
   );
   return notes.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function listTrashNotes() {
+  let files;
+  try {
+    files = await readdir(trashDir);
+  } catch {
+    return [];
+  }
+  const notes = await Promise.all(
+    files
+      .filter((file) => extname(file) === ".md")
+      .map((file) => readTrashNote(file.slice(0, -3))),
+  );
+  return notes.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function loadSettings() {
+  try {
+    const raw = await readFile(settingsFile, "utf8");
+    return { ...defaultSettings, ...JSON.parse(raw) };
+  } catch {
+    return { ...defaultSettings };
+  }
+}
+
+async function saveSettings(settings) {
+  await writeFile(settingsFile, JSON.stringify(settings, null, 2), "utf8");
 }
 
 async function readJson(request) {
@@ -98,8 +143,38 @@ async function handleApi(request, response) {
     return sendJson(response, await readNote(body.id));
   }
 
+  // Soft-delete: move to trash instead of removing
   if (command === "delete_note") {
-    await rm(notePath(body.id), { force: true });
+    const src = notePath(body.id);
+    const dst = trashNotePath(body.id);
+    try {
+      await rename(src, dst);
+    } catch {
+      // If the file is already gone, that's fine
+    }
+    response.writeHead(204);
+    return response.end();
+  }
+
+  if (command === "list_trash") return sendJson(response, await listTrashNotes());
+
+  if (command === "restore_note") {
+    const src = trashNotePath(body.id);
+    const dst = notePath(body.id);
+    await rename(src, dst);
+    return sendJson(response, await readNote(body.id));
+  }
+
+  if (command === "delete_permanently") {
+    await rm(trashNotePath(body.id), { force: true });
+    response.writeHead(204);
+    return response.end();
+  }
+
+  if (command === "get_settings") return sendJson(response, await loadSettings());
+
+  if (command === "save_settings") {
+    await saveSettings(body);
     response.writeHead(204);
     return response.end();
   }
@@ -113,7 +188,9 @@ function serveStatic(request, response) {
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const file = resolve(distDir, `.${normalize(requested)}`);
 
-  if (!file.startsWith(resolve(distDir))) {
+  // Path traversal protection
+  const resolvedDist = resolve(distDir);
+  if (!file.toLowerCase().startsWith(resolvedDist.toLowerCase())) {
     response.writeHead(403);
     response.end();
     return;

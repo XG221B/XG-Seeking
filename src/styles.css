@@ -453,3 +453,260 @@ textarea::placeholder {
     padding: 8px 22px 32px;
   }
 }
+
+/* ── 回收站 ── */
+
+.trash-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 32, 96, .13);
+  background: transparent;
+}
+
+.trash-bar.active {
+  background: rgba(0, 32, 96, .04);
+}
+
+.trash-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #4f5f78;
+  font-size: 13px;
+  text-align: left;
+  transition: background .14s ease, color .14s ease;
+}
+
+.trash-toggle:hover {
+  background: rgba(0, 32, 96, .06);
+  color: var(--accent);
+}
+
+.trash-icon {
+  display: inline-grid;
+  width: 20px;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.trash-clear {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 32, 96, .18);
+  border-radius: 8px;
+  background: #fff;
+  color: #7c8799;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+
+.trash-clear:hover {
+  border-color: #c44;
+  color: #c44;
+  background: rgba(204, 68, 68, .04);
+}
+
+.trash-header-label {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid rgba(0, 32, 96, .14);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #4f5f78;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.restore-note {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #7c8799;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease, background .14s ease, color .14s ease;
+}
+
+.note-row:hover .restore-note {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.restore-note:hover {
+  background: rgba(0, 32, 96, .08);
+  color: var(--accent);
+}
+
+.trash-form {
+  display: grid;
+  min-height: calc(100vh - 132px);
+}
+
+.trash-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 30px 46px 46px;
+  overflow-y: auto;
+}
+
+.trash-detail-title {
+  margin: 0;
+  color: #20251f;
+  font-size: 26px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.trash-detail-time {
+  color: #858b84;
+  font-size: 13px;
+}
+
+.trash-detail-body {
+  margin: 6px 0 0;
+  padding: 18px;
+  border: 1px solid rgba(0, 32, 96, .13);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: #303832;
+  font-family: var(--font-main);
+  font-size: 15px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trash-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.danger {
+  border-color: rgba(204, 68, 68, .24);
+  background: #fff;
+  color: #c44;
+}
+
+.danger:hover {
+  border-color: #c44;
+  background: rgba(204, 68, 68, .04);
+}
+
+@media (max-width: 760px) {
+  .trash-detail {
+    padding: 24px 22px 32px;
+  }
+
+  .trash-detail-title {
+    font-size: 22px;
+  }
+}
+
+/* ── 设置页 ── */
+
+.settings-page {
+  display: grid;
+  min-height: calc(100vh - 132px);
+  place-items: center;
+}
+
+.settings-inner {
+  width: min(480px, 100%);
+  padding: 48px 24px;
+}
+
+.settings-heading {
+  margin: 0 0 36px;
+  color: #20251f;
+  font-size: 36px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.settings-label {
+  color: #4f5f78;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-select,
+.settings-input {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid rgba(0, 32, 96, .18);
+  border-radius: 8px;
+  background: #fff;
+  color: #20251f;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .14s ease;
+}
+
+.settings-select:focus,
+.settings-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234f5f78' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 32px;
+}
+
+.settings-feedback {
+  color: #4f5f78;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+.settings-feedback.visible {
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .settings-inner {
+    padding: 32px 20px;
+  }
+
+  .settings-heading {
+    font-size: 30px;
+    margin-bottom: 28px;
+  }
+}

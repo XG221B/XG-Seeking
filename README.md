@@ -1,58 +1,68 @@
-# XG Seeking
+<div align="center">
 
-XG Seeking is a lightweight local-first desktop notes app. It started as a personal web notebook and is being shaped into a reusable template-style application that people can install, customize, and extend.
+<img src="src-tauri/icons/icon.ico" width="80" alt="XG-Seeking">
 
-## Disclaimer
+# XG-Seeking
 
-This project was created for fun with the help of Codex. It is a personal experiment, even not a real product.
+### 寻找心灵的碎片 · Seeking Fragments of the Soul
 
-Use it at your own risk. I do not provide any warranty, guarantee, or formal support. If something breaks, data is lost, or the app behaves unexpectedly, please do not hold me responsible. :broken_heart:
+A minimalist, local-first desktop notes app — write, search, and never lose a thought.
 
-## Current Features
+[![Release](https://img.shields.io/github/v/release/XG221B/xg-seeking?color=%23002060)](https://github.com/XG221B/xg-seeking/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-%23002060)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-%23002060)](https://github.com/XG221B/xg-seeking/releases/latest)
 
-- Four-slot top navigation for future personal modules
-- Local note writing with title and body
-- Auto-save while editing
-- Chinese-friendly search with result bubble feedback
-- Markdown files stored in the app data directory
-- Lightweight Tauri desktop shell instead of a browser tab and local Node server
+</div>
 
-## Development
+---
 
-Requirements:
+## ✨ Features · 功能
 
-- Node.js
-- Rust toolchain with Cargo
-- Windows WebView2 runtime
+XG-Seeking is a no-fuss notebook that stays out of your way. Write Markdown notes with auto-save, find anything instantly with real-time search, and never worry about accidental deletions thanks to a built-in recycle bin. Switch between Chinese and English on the fly, tweak the window title to your liking, and rest easy knowing everything lives right on your disk — no accounts, no cloud, no nonsense. One lightweight installer, uninstalls cleanly.
 
-Install dependencies:
+## 📥 Install · 安装
 
-```bash
-npm install
-```
+Download the latest `XG221B_0.x.x_x64-setup.exe` from [Releases](https://github.com/XG221B/xg-seeking/releases/latest) and run it. Uninstall via **Settings → Apps → XG221B** or `uninstall.exe` in the install directory.
 
-Run in development:
+## 🛠 Development · 开发
+
+**Prerequisites:** Node.js, Rust + Cargo, Windows WebView2
 
 ```bash
-npm run dev
+npm install           # install dependencies
+npm run dev           # Tauri dev mode (frontend HMR + Rust debug)
+npm run web:dev       # browser-only at http://127.0.0.1:1420
+npm run build         # production build → installer
 ```
 
-Build an installer:
+## 🧱 Tech Stack · 技术栈
 
-```bash
-npm run build
+| Layer 层 | Tech 技术 |
+|----------|-----------|
+| Desktop Shell | [Tauri 2](https://tauri.app) (Rust) |
+| Frontend | Vanilla JS + CSS, bundled with [Vite](https://vitejs.dev) |
+| Storage | `.md` files under `%APPDATA%/com.xg221b.notes/` |
+| Web Fallback | Node.js `local-server.mjs` (identical API to Tauri backend) |
+
+## 📁 Project Structure · 项目结构
+
+```
+xg-seeking/
+├── index.html              # Vite entry
+├── src/
+│   ├── main.js             # App logic, i18n, router
+│   └── styles.css          # All styles
+├── src-tauri/
+│   ├── src/
+│   │   ├── main.rs         # Tauri command handlers
+│   │   ├── notes.rs        # Note CRUD + trash logic
+│   │   └── settings.rs     # Settings persistence
+│   ├── icons/icon.ico      # App icon
+│   └── Cargo.toml
+├── local-server.mjs        # Dev web server
+└── package.json
 ```
 
-## Data Location
+## 📄 License
 
-User notes are stored under the system app data directory for the app identifier `com.xg221b.notes`, inside a `notes` folder. This keeps user data separate from the application files so upgrades do not overwrite personal notes.
-
-## Release Direction
-
-The intended GitHub release flow is:
-
-- maintain source in this repository
-- build signed or unsigned Windows installers through GitHub Actions
-- publish installers in GitHub Releases
-- keep `CHANGELOG.md` updated for each version
-
+MIT © XG221B
