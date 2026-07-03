@@ -20,7 +20,7 @@ const STRINGS = {
     mindmapAddChild: "添加子节点",
     mindmapAddSibling: "添加兄弟节点",
     mindmapDeleteNode: "删除节点",
-    mindmapShortcuts: "Tab 子节点 · Enter 同级 · Delete 删除 · 点选再点改名 · 右键菜单",
+    mindmapShortcuts: "Tab 子节点 · Enter 同级节点 · Delete 删除 · 点选再点改名 · 右键菜单",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -248,11 +248,11 @@ function updateNavLabels() {
 
 // ── Page routing ──
 
-function setPage(page) {
+async function setPage(page) {
   // Save current mindmap before switching away
   if (state.page === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
-    if (mm) { clearTimeout(mindmapSaveTimer); saveMindmap(mm); }
+    if (mm) { clearTimeout(mindmapSaveTimer); await saveMindmap(mm); }
   }
   state.page = page;
   state.showTrash = false;
@@ -842,12 +842,15 @@ function bindMindmapEvents() {
     : state.mindmaps.find((m) => m.id === state.selectedMindmapId);
   if (!mm || state.showMindmapTrash) return;
 
-  // Title
+  // Title — update sidebar on change
   const titleInput = document.getElementById("mmTitle");
   if (titleInput) {
     titleInput.addEventListener("input", () => {
       mm.title = titleInput.value || t("mindmapUntitled");
       scheduleMindmapSave(mm);
+      // Update sidebar item in-place
+      const item = document.querySelector(`.mindmap-item[data-id="${mm.id}"]`);
+      if (item) item.textContent = mm.title;
     });
   }
 
@@ -953,8 +956,7 @@ function showContextMenu(x, y) {
     <button data-action="delete">✕ ${t("mindmapDeleteNode")}</button>
   `;
   menu.querySelectorAll("button").forEach((btn) => {
-    btn.addEventListener("mousedown", (e) => {
-      e.preventDefault();
+    btn.onclick = (e) => {
       e.stopPropagation();
       const mm = getCurrentMindmap();
       if (!mm) return;
@@ -962,13 +964,16 @@ function showContextMenu(x, y) {
       if (btn.dataset.action === "sibling") addSiblingNode(mm);
       if (btn.dataset.action === "delete") deleteNode(mm);
       removeContextMenu();
-    });
+    };
   });
   document.body.appendChild(menu);
-  const closer = (e) => { if (!menu.contains(e.target)) { removeContextMenu(); document.removeEventListener("mousedown", closer); } };
-  setTimeout(() => document.addEventListener("mousedown", closer), 0);
+  setTimeout(() => {
+    const closer = (e) => {
+      if (!menu.contains(e.target)) { removeContextMenu(); document.removeEventListener("click", closer); }
+    };
+    document.addEventListener("click", closer);
+  }, 0);
 }
-
 // ── Mindmap tree operations ──
 
 function getCurrentMindmap() {
