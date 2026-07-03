@@ -170,6 +170,7 @@ const state = {
   selectedMindmapId: "",
   selectedNodeId: "",
   showMindmapTrash: false,
+  mindmapQuery: "",
   mindmapTrash: [],
   editingNode: false,
 };
@@ -258,6 +259,8 @@ async function setPage(page) {
   }
   state.page = page;
   state.showTrash = false;
+  if (page !== "notes") state.query = "";
+  if (page !== "mindmaps") state.mindmapQuery = "";
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   render();
   if (page === "notes") loadNotes();
@@ -760,7 +763,7 @@ async function clearAllTrash() {
 function renderMindmaps() {
   const source = state.showMindmapTrash ? state.mindmapTrash : state.mindmaps;
   const selected = source.find((m) => m.id === state.selectedMindmapId);
-  const keyword = state.query.trim().toLowerCase();
+  const keyword = state.mindmapQuery.trim().toLowerCase();
   const filtered = keyword
     ? source.filter((m) => m.title.toLowerCase().includes(keyword))
     : source;
@@ -776,11 +779,14 @@ function renderMindmaps() {
       ).join("")
     : `<p class="message">${state.showMindmapTrash ? t("mindmapTrashEmpty") : t("mindmapEmpty")}</p>`;
 
+  const feedbackText = keyword ? `${t("found")} ${filtered.length}` : "";
+
   app.innerHTML =
     `<section class="notes">` +
       `<aside class="side">` +
         `<div class="tools">
-          <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("mindmapSearch")}" value="${escapeHtml(state.query)}"></div>
+          <div class="search-feedback ${keyword ? "visible" : ""}" id="searchFeedback">${feedbackText}</div>
+          <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("mindmapSearch")}" value="${escapeHtml(state.mindmapQuery)}"></div>
           ${state.showMindmapTrash
             ? `<div class="trash-header-label">${t("trash")}</div>`
             : `<button class="icon primary" id="newMindmap" title="${t("mindmapUntitled")}">＋</button>`}
@@ -820,8 +826,8 @@ function bindMindmapEvents() {
   if (search) {
     let composing = false;
     search.addEventListener("compositionstart", () => { composing = true; });
-    search.addEventListener("compositionend", (e) => { composing = false; state.query = e.target.value; renderMindmaps(); });
-    search.addEventListener("input", (e) => { state.query = e.target.value; if (!composing) renderMindmaps(); });
+    search.addEventListener("compositionend", (e) => { composing = false; state.mindmapQuery = e.target.value; renderMindmaps(); });
+    search.addEventListener("input", (e) => { state.mindmapQuery = e.target.value; if (!composing) renderMindmaps(); });
   }
 
   document.getElementById("newMindmap")?.addEventListener("click", createMindmap);
@@ -1172,13 +1178,13 @@ async function toggleMindmapTrashView() {
   if (state.showMindmapTrash) {
     state.showMindmapTrash = false;
     state.selectedMindmapId = state.mindmaps[0]?.id || "";
-    state.query = "";
+    state.mindmapQuery = "";
     renderMindmaps();
   } else {
     state.mindmapTrash = await invoke("list_mindmap_trash");
     state.showMindmapTrash = true;
     state.selectedMindmapId = state.mindmapTrash[0]?.id || "";
-    state.query = "";
+    state.mindmapQuery = "";
     renderMindmaps();
   }
 }
