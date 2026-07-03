@@ -902,6 +902,7 @@ function bindMindmapEvents() {
   document.querySelectorAll(".mm-node-wrapper").forEach((el) => {
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       // Update selection state and highlight
       state.selectedNodeId = el.dataset.nodeId;
       state.editingNode = false;
@@ -1073,6 +1074,7 @@ async function createMindmap() {
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
   state.selectedNodeId = mm.root.id;
+  state.editingNode = true;
   renderMindmaps();
 }
 

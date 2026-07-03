@@ -66,7 +66,7 @@ fn now_millis() -> Result<u64, String> {
 fn default_root() -> MindmapNode {
     MindmapNode {
         id: "n1".into(),
-        text: "根节点".into(),
+        text: String::new(),
         collapsed: false,
         children: vec![],
     }
