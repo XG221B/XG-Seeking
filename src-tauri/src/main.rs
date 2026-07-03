@@ -1,8 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod mindmap;
 mod notes;
 mod settings;
 
+use mindmap::Mindmap;
 use notes::Note;
 use settings::Settings;
 use std::path::PathBuf;
@@ -11,6 +13,7 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     notes::ensure_dirs(&dir)?;
+    mindmap::ensure_dirs(&dir)?;
     Ok(dir)
 }
 
@@ -51,6 +54,43 @@ fn delete_permanently(app: AppHandle, id: String) -> Result<(), String> {
     notes::delete_permanently(&app_data(&app)?, &id)
 }
 
+// ── Mindmaps ──
+
+#[tauri::command]
+fn list_mindmaps(app: AppHandle) -> Result<Vec<Mindmap>, String> {
+    mindmap::list_mindmaps(&app_data(&app)?)
+}
+
+#[tauri::command]
+fn create_mindmap(app: AppHandle) -> Result<Mindmap, String> {
+    mindmap::create_mindmap(&app_data(&app)?)
+}
+
+#[tauri::command]
+fn save_mindmap(app: AppHandle, mm: Mindmap) -> Result<Mindmap, String> {
+    mindmap::save_mindmap(&app_data(&app)?, mm)
+}
+
+#[tauri::command]
+fn delete_mindmap(app: AppHandle, id: String) -> Result<(), String> {
+    mindmap::delete_mindmap(&app_data(&app)?, &id)
+}
+
+#[tauri::command]
+fn list_mindmap_trash(app: AppHandle) -> Result<Vec<Mindmap>, String> {
+    mindmap::list_trash(&app_data(&app)?)
+}
+
+#[tauri::command]
+fn restore_mindmap(app: AppHandle, id: String) -> Result<Mindmap, String> {
+    mindmap::restore_mindmap(&app_data(&app)?, &id)
+}
+
+#[tauri::command]
+fn delete_mindmap_permanently(app: AppHandle, id: String) -> Result<(), String> {
+    mindmap::delete_permanently(&app_data(&app)?, &id)
+}
+
 // ── Settings ──
 
 #[tauri::command]
@@ -78,6 +118,13 @@ fn main() {
             list_trash,
             restore_note,
             delete_permanently,
+            list_mindmaps,
+            create_mindmap,
+            save_mindmap,
+            delete_mindmap,
+            list_mindmap_trash,
+            restore_mindmap,
+            delete_mindmap_permanently,
             get_settings,
             save_settings,
             set_window_title,

@@ -10,6 +10,8 @@ const distDir = join(root, "dist");
 const dataDir = join(root, "local-data");
 const notesDir = join(dataDir, "notes");
 const trashDir = join(dataDir, "trash");
+const mindmapsDir = join(dataDir, "mindmaps");
+const mindmapsTrashDir = join(dataDir, "mindmaps_trash");
 const settingsFile = join(dataDir, "settings.json");
 
 const defaultSettings = { language: "zh", title: "寻找心灵的碎片..." };
@@ -20,6 +22,8 @@ if (!existsSync(join(distDir, "index.html"))) {
 
 await mkdir(notesDir, { recursive: true });
 await mkdir(trashDir, { recursive: true });
+await mkdir(mindmapsDir, { recursive: true });
+await mkdir(mindmapsTrashDir, { recursive: true });
 
 function nowMillis() {
   return Date.now();
@@ -110,6 +114,44 @@ async function saveSettings(settings) {
   await writeFile(settingsFile, JSON.stringify(settings, null, 2), "utf8");
 }
 
+// ── Mindmaps ──
+
+function mindmapPath(id) {
+  ensureId(id);
+  return join(mindmapsDir, `${id}.json`);
+}
+
+function mindmapTrashPath(id) {
+  ensureId(id);
+  return join(mindmapsTrashDir, `${id}.json`);
+}
+
+async function listMindmaps() {
+  const files = await readdir(mindmapsDir).catch(() => []);
+  const maps = await Promise.all(
+    files
+      .filter((f) => extname(f) === ".json")
+      .map(async (f) => {
+        const raw = await readFile(join(mindmapsDir, f), "utf8");
+        return JSON.parse(raw);
+      }),
+  );
+  return maps.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function listMindmapTrash() {
+  const files = await readdir(mindmapsTrashDir).catch(() => []);
+  const maps = await Promise.all(
+    files
+      .filter((f) => extname(f) === ".json")
+      .map(async (f) => {
+        const raw = await readFile(join(mindmapsTrashDir, f), "utf8");
+        return JSON.parse(raw);
+      }),
+  );
+  return maps.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 const MAX_BODY = 1_048_576; // 1 MB
 const MAX_TITLE_LEN = 500;
 const MAX_BODY_LEN = 100_000;
@@ -190,6 +232,52 @@ async function handleApi(request, response) {
 
   if (command === "save_settings") {
     await saveSettings(body);
+    response.writeHead(204);
+    return response.end();
+  }
+
+  // ── Mindmaps ──
+
+  if (command === "list_mindmaps") return sendJson(response, await listMindmaps());
+
+  if (command === "create_mindmap") {
+    const id = `mindmap-${nowMillis()}`;
+    const mm = {
+      id,
+      title: "未命名导图",
+      updatedAt: nowMillis(),
+      root: { id: "n1", text: "根节点", collapsed: false, children: [] },
+    };
+    await writeFile(mindmapPath(id), JSON.stringify(mm), "utf8");
+    return sendJson(response, mm);
+  }
+
+  if (command === "save_mindmap") {
+    const mm = { ...body, updatedAt: nowMillis() };
+    await writeFile(mindmapPath(body.id), JSON.stringify(mm), "utf8");
+    return sendJson(response, mm);
+  }
+
+  if (command === "delete_mindmap") {
+    try {
+      await rename(mindmapPath(body.id), mindmapTrashPath(body.id));
+    } catch {}
+    response.writeHead(204);
+    return response.end();
+  }
+
+  if (command === "list_mindmap_trash") return sendJson(response, await listMindmapTrash());
+
+  if (command === "restore_mindmap") {
+    const src = mindmapTrashPath(body.id);
+    const dst = mindmapPath(body.id);
+    await rename(src, dst);
+    const raw = await readFile(dst, "utf8");
+    return sendJson(response, JSON.parse(raw));
+  }
+
+  if (command === "delete_mindmap_permanently") {
+    await rm(mindmapTrashPath(body.id), { force: true });
     response.writeHead(204);
     return response.end();
   }

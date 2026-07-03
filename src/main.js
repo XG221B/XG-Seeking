@@ -7,6 +7,20 @@ const STRINGS = {
     home: "首页",
     notes: "记录",
     spare: "备用",
+    mindmaps: "导图",
+    mindmapSearch: "搜索导图",
+    mindmapUntitled: "未命名导图",
+    mindmapRoot: "根节点",
+    mindmapNodeNew: "新节点",
+    mindmapEmpty: "还没有导图",
+    mindmapTrashEmpty: "回收站为空",
+    mindmapClearConfirm: "确定清空所有导图？",
+    mindmapHint: "选择一个导图或新建",
+    mindmapBack: "返回导图",
+    mindmapAddChild: "添加子节点",
+    mindmapAddSibling: "添加兄弟节点",
+    mindmapDeleteNode: "删除节点",
+    mindmapShortcuts: "提示：Tab 加子节点 · Enter 加兄弟 · Delete 删除 · 双击改名 · 右键菜单",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -48,6 +62,20 @@ const STRINGS = {
     home: "Home",
     notes: "Notes",
     spare: "Spare",
+    mindmaps: "Mindmap",
+    mindmapSearch: "Search mindmaps",
+    mindmapUntitled: "Untitled",
+    mindmapRoot: "Root",
+    mindmapNodeNew: "New node",
+    mindmapEmpty: "No mindmaps yet",
+    mindmapTrashEmpty: "Trash is empty",
+    mindmapClearConfirm: "Clear all mindmaps?",
+    mindmapHint: "Select or create a mindmap",
+    mindmapBack: "Back to mindmaps",
+    mindmapAddChild: "Add child",
+    mindmapAddSibling: "Add sibling",
+    mindmapDeleteNode: "Delete node",
+    mindmapShortcuts: "Tab: child · Enter: sibling · Delete: remove · DblClick: rename · Right-click: menu",
     settings: "Settings",
     comingSoon: "Coming soon",
     untitled: "Untitled",
@@ -136,6 +164,11 @@ const state = {
   trashNotes: [],
   settings: { language: "zh", title: t("appTitle") },
   previewMode: false,
+  mindmaps: [],
+  selectedMindmapId: "",
+  selectedNodeId: "",
+  showMindmapTrash: false,
+  mindmapTrash: [],
 };
 
 let autoSaveTimer = 0;
@@ -203,7 +236,7 @@ async function applyTitle() {
 function updateNavLabels() {
   navButtons.forEach((btn) => {
     const page = btn.dataset.page;
-    const labelMap = { home: "home", notes: "notes", slot1: "spare", settings: "settings" };
+    const labelMap = { home: "home", notes: "notes", mindmaps: "mindmaps", settings: "settings" };
     const key = labelMap[page];
     if (key) {
       const span = btn.querySelector("span");
@@ -220,6 +253,7 @@ function setPage(page) {
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   render();
   if (page === "notes") loadNotes();
+  if (page === "mindmaps") loadMindmaps();
 }
 
 function renderPlaceholder(page) {
@@ -454,6 +488,7 @@ function renderTrashEmpty() {
 
 function render() {
   if (state.page === "notes") renderNotes();
+  else if (state.page === "mindmaps") renderMindmaps();
   else if (state.page === "settings") renderSettings();
   else renderPlaceholder(state.page);
 }
@@ -708,6 +743,356 @@ async function clearAllTrash() {
   state.showTrash = false;
   state.selectedId = state.notes[0] ? state.notes[0].id : "";
   renderNotes();
+}
+
+// ── Mindmaps ──
+
+function renderMindmaps() {
+  const source = state.showMindmapTrash ? state.mindmapTrash : state.mindmaps;
+  const selected = source.find((m) => m.id === state.selectedMindmapId);
+  const keyword = state.query.trim().toLowerCase();
+  const filtered = keyword
+    ? source.filter((m) => m.title.toLowerCase().includes(keyword))
+    : source;
+
+  const listHtml = filtered.length
+    ? filtered.map((m) =>
+        `<div class="mindmap-row ${m.id === state.selectedMindmapId ? "active" : ""}">` +
+        `<button class="mindmap-item" data-id="${m.id}">${escapeHtml(m.title)}</button>` +
+        (state.showMindmapTrash
+          ? `<button class="mindmap-restore" data-restore="${m.id}" title="${t("restore")}">↩</button>`
+          : `<button class="mindmap-delete" data-delete="${m.id}" title="${t("delete")}">×</button>`) +
+        `</div>`
+      ).join("")
+    : `<p class="message">${state.showMindmapTrash ? t("mindmapTrashEmpty") : t("mindmapEmpty")}</p>`;
+
+  app.innerHTML =
+    `<section class="notes">` +
+      `<aside class="side">` +
+        `<div class="tools">
+          <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("mindmapSearch")}" value="${escapeHtml(state.query)}"></div>
+          ${state.showMindmapTrash
+            ? `<div class="trash-header-label">${t("trash")}</div>`
+            : `<button class="icon primary" id="newMindmap" title="${t("mindmapUntitled")}">＋</button>`}
+        </div>` +
+        `<div class="list">${listHtml}</div>` +
+        `<div class="trash-bar ${state.showMindmapTrash ? "active" : ""}">
+          <button class="trash-toggle" id="toggleMindmapTrash">
+            <span class="trash-icon">${state.showMindmapTrash ? "←" : "🗑"}</span>
+            <span>${state.showMindmapTrash ? t("mindmapBack") : t("trash")}</span>
+          </button>
+          ${state.showMindmapTrash ? `<button class="trash-clear" id="clearMindmapTrash">${t("clear")}</button>` : ""}
+        </div>` +
+      `</aside>` +
+      `<section class="editor">${selected ? renderMindmapCanvas(selected) : `<div class="empty"><h2>${t("mindmaps")}</h2><p>${t("mindmapHint")}</p></div>`}</section>` +
+    `</section>`;
+
+  bindMindmapEvents();
+}
+
+function renderMindmapCanvas(mm) {
+  return `<div class="mm-canvas" id="mmCanvas">
+    <div class="mm-toolbar">
+      <input class="mm-title-input" id="mmTitle" value="${escapeHtml(mm.title)}" placeholder="${t("mindmapUntitled")}">
+      <span class="mm-shortcuts">${t("mindmapShortcuts")}</span>
+    </div>
+    <div class="mm-tree" id="mmTree">
+      ${renderNode(mm.root)}
+    </div>
+  </div>`;
+}
+
+function bindMindmapEvents() {
+  const search = document.getElementById("search");
+  if (search) {
+    let composing = false;
+    search.addEventListener("compositionstart", () => { composing = true; });
+    search.addEventListener("compositionend", (e) => { composing = false; state.query = e.target.value; renderMindmaps(); });
+    search.addEventListener("input", (e) => { state.query = e.target.value; if (!composing) renderMindmaps(); });
+  }
+
+  document.getElementById("newMindmap")?.addEventListener("click", createMindmap);
+  document.getElementById("toggleMindmapTrash")?.addEventListener("click", toggleMindmapTrashView);
+  document.getElementById("clearMindmapTrash")?.addEventListener("click", clearAllMindmapTrash);
+
+  document.querySelectorAll(".mindmap-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.selectedMindmapId = btn.dataset.id;
+      state.selectedNodeId = "";
+      renderMindmaps();
+    });
+  });
+
+  document.querySelectorAll(".mindmap-delete").forEach((btn) => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); trashMindmap(btn.dataset.delete); });
+  });
+
+  document.querySelectorAll(".mindmap-restore").forEach((btn) => {
+    btn.addEventListener("click", (e) => { e.stopPropagation(); restoreMindmap(btn.dataset.restore); });
+  });
+
+  const mm = state.showMindmapTrash
+    ? state.mindmapTrash.find((m) => m.id === state.selectedMindmapId)
+    : state.mindmaps.find((m) => m.id === state.selectedMindmapId);
+  if (!mm || state.showMindmapTrash) return;
+
+  // Title
+  const titleInput = document.getElementById("mmTitle");
+  if (titleInput) {
+    titleInput.addEventListener("input", () => {
+      mm.title = titleInput.value || t("mindmapUntitled");
+      scheduleMindmapSave(mm);
+    });
+  }
+
+  // Node click → select (don't re-render if already selected, to allow dblclick editing)
+  document.querySelectorAll(".mm-node").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest(".mm-toggle") || e.target.closest(".mm-edit-input")) return;
+      const nodeId = el.parentElement.dataset.nodeId;
+      if (state.selectedNodeId === nodeId) return; // already selected — let dblclick through
+      state.selectedNodeId = nodeId;
+      renderMindmaps();
+    });
+  });
+
+  // Collapse/expand
+  document.querySelectorAll(".mm-toggle").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleNode(mm.root, btn.dataset.toggle);
+      scheduleMindmapSave(mm);
+      renderMindmaps();
+    });
+  });
+
+  // Double-click to rename
+  document.querySelectorAll(".mm-text").forEach((span) => {
+    span.addEventListener("dblclick", (e) => {
+      const nodeId = span.dataset.edit;
+      const node = findNode(mm.root, nodeId);
+      if (!node) return;
+      const input = document.createElement("input");
+      input.value = node.text;
+      input.className = "mm-edit-input";
+      span.replaceWith(input);
+      input.focus();
+      input.select();
+      const commit = () => {
+        node.text = input.value.trim() || " ";
+        scheduleMindmapSave(mm);
+        renderMindmaps();
+      };
+      input.addEventListener("blur", () => setTimeout(commit, 50));
+      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } });
+    });
+  });
+
+  // Right-click context menu
+  document.querySelectorAll(".mm-node-wrapper").forEach((el) => {
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      state.selectedNodeId = el.dataset.nodeId;
+      renderMindmaps(); // ensure selection is reflected before menu
+      showContextMenu(e.clientX, e.clientY, mm);
+    });
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener("keydown", mindmapKeyHandler);
+}
+
+function renderNode(node, depth = 0) {
+  const hasChildren = node.children.length > 0;
+  const isSelected = node.id === state.selectedNodeId;
+  return `<div class="mm-node-wrapper" style="margin-left: ${depth * 24}px" data-node-id="${node.id}">
+    <div class="mm-node ${isSelected ? "selected" : ""}">
+      ${hasChildren
+        ? `<button class="mm-toggle" data-toggle="${node.id}">${node.collapsed ? "▸" : "▾"}</button>`
+        : `<span class="mm-toggle-spacer"></span>`}
+      <span class="mm-text" data-edit="${node.id}">${escapeHtml(node.text)}</span>
+    </div>
+    ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}
+  </div>`;
+}
+
+function mindmapKeyHandler(e) {
+  if (state.page !== "mindmaps" || state.showMindmapTrash) return;
+  const mm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
+  if (!mm) return;
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "Tab") { e.preventDefault(); addChildNode(mm); }
+  if (e.key === "Enter") { e.preventDefault(); addSiblingNode(mm); }
+  if (e.key === "Delete" && state.selectedNodeId) { e.preventDefault(); deleteNode(mm); }
+}
+
+function removeContextMenu() {
+  document.querySelector(".mm-context-menu")?.remove();
+}
+
+// Replace the old showContextMenu — fix event timing
+function showContextMenu(x, y, mm) {
+  removeContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "mm-context-menu";
+  menu.style.left = x + "px";
+  menu.style.top = y + "px";
+  menu.innerHTML = `
+    <button data-action="child">＋ ${t("mindmapAddChild")}</button>
+    <button data-action="sibling">＝ ${t("mindmapAddSibling")}</button>
+    <button data-action="delete">✕ ${t("mindmapDeleteNode")}</button>
+  `;
+  menu.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (btn.dataset.action === "child") addChildNode(mm);
+      if (btn.dataset.action === "sibling") addSiblingNode(mm);
+      if (btn.dataset.action === "delete") deleteNode(mm);
+      removeContextMenu();
+    });
+  });
+  document.body.appendChild(menu);
+  // Close on click outside
+  const closer = (e) => { if (!menu.contains(e.target)) { removeContextMenu(); document.removeEventListener("mousedown", closer); } };
+  setTimeout(() => document.addEventListener("mousedown", closer), 0);
+}
+
+// ── Mindmap tree operations ──
+
+function findNode(root, id) {
+  if (root.id === id) return root;
+  for (const child of root.children) {
+    const found = findNode(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findParent(root, id, parent = null) {
+  if (root.id === id) return parent;
+  for (const child of root.children) {
+    const found = findParent(child, id, root);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function toggleNode(root, id) {
+  const node = findNode(root, id);
+  if (node) node.collapsed = !node.collapsed;
+}
+
+function addChildNode(mm) {
+  const node = state.selectedNodeId ? findNode(mm.root, state.selectedNodeId) : mm.root;
+  if (!node) return;
+  const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+  node.children.push(newNode);
+  node.collapsed = false;
+  state.selectedNodeId = newNode.id;
+  scheduleMindmapSave(mm);
+  renderMindmaps();
+}
+
+function addSiblingNode(mm) {
+  if (!state.selectedNodeId || state.selectedNodeId === mm.root.id) return addChildNode(mm);
+  const parent = findParent(mm.root, state.selectedNodeId);
+  if (!parent) return;
+  const idx = parent.children.findIndex((c) => c.id === state.selectedNodeId);
+  const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+  parent.children.splice(idx + 1, 0, newNode);
+  state.selectedNodeId = newNode.id;
+  scheduleMindmapSave(mm);
+  renderMindmaps();
+}
+
+function deleteNode(mm) {
+  if (!state.selectedNodeId || state.selectedNodeId === mm.root.id) return;
+  const parent = findParent(mm.root, state.selectedNodeId);
+  if (!parent) return;
+  parent.children = parent.children.filter((c) => c.id !== state.selectedNodeId);
+  state.selectedNodeId = "";
+  scheduleMindmapSave(mm);
+  renderMindmaps();
+}
+
+let mindmapSaveTimer = 0;
+function scheduleMindmapSave(mm) {
+  clearTimeout(mindmapSaveTimer);
+  mindmapSaveTimer = setTimeout(() => saveMindmap(mm), 500);
+}
+
+// ── Mindmap API ──
+
+async function loadMindmaps() {
+  try {
+    state.mindmaps = await invoke("list_mindmaps");
+    state.showMindmapTrash = false;
+    if (!state.selectedMindmapId && state.mindmaps[0]) state.selectedMindmapId = state.mindmaps[0].id;
+    renderMindmaps();
+    loadMindmapTrashSilent();
+  } catch (e) {
+    app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>读取失败</h1><div class="quiet">${escapeHtml(e)}</div></div></section>`;
+  }
+}
+
+async function loadMindmapTrashSilent() {
+  try { state.mindmapTrash = await invoke("list_mindmap_trash"); } catch {}
+}
+
+async function createMindmap() {
+  const mm = await invoke("create_mindmap");
+  state.mindmaps.unshift(mm);
+  state.selectedMindmapId = mm.id;
+  state.selectedNodeId = mm.root.id;
+  renderMindmaps();
+}
+
+async function saveMindmap(mm) {
+  await invoke("save_mindmap", mm);
+}
+
+async function trashMindmap(id) {
+  await invoke("delete_mindmap", { id });
+  state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
+  if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
+  renderMindmaps();
+}
+
+async function restoreMindmap(id) {
+  const mm = await invoke("restore_mindmap", { id });
+  state.mindmapTrash = state.mindmapTrash.filter((m) => m.id !== id);
+  state.mindmaps.unshift(mm);
+  if (state.mindmapTrash.length === 0) state.showMindmapTrash = false;
+  state.selectedMindmapId = mm.id;
+  renderMindmaps();
+}
+
+async function toggleMindmapTrashView() {
+  if (state.showMindmapTrash) {
+    state.showMindmapTrash = false;
+    state.selectedMindmapId = state.mindmaps[0]?.id || "";
+    state.query = "";
+    renderMindmaps();
+  } else {
+    state.mindmapTrash = await invoke("list_mindmap_trash");
+    state.showMindmapTrash = true;
+    state.selectedMindmapId = state.mindmapTrash[0]?.id || "";
+    state.query = "";
+    renderMindmaps();
+  }
+}
+
+async function clearAllMindmapTrash() {
+  if (state.mindmapTrash.length === 0) return;
+  if (!confirm(t("mindmapClearConfirm"))) return;
+  for (const m of state.mindmapTrash) {
+    await invoke("delete_mindmap_permanently", { id: m.id });
+  }
+  state.mindmapTrash = [];
+  state.showMindmapTrash = false;
+  state.selectedMindmapId = state.mindmaps[0]?.id || "";
+  renderMindmaps();
 }
 
 // ── Init ──
