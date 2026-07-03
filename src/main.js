@@ -20,7 +20,7 @@ const STRINGS = {
     mindmapAddChild: "添加子节点",
     mindmapAddSibling: "添加兄弟节点",
     mindmapDeleteNode: "删除节点",
-    mindmapShortcuts: "提示：Tab 加子节点 · Enter 加兄弟 · Delete 删除 · 双击改名 · 右键菜单",
+    mindmapShortcuts: "Tab 子节点 · Enter 兄弟 · Delete 删除 · 单击选中再单击改名 · 右键菜单",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -75,7 +75,7 @@ const STRINGS = {
     mindmapAddChild: "Add child",
     mindmapAddSibling: "Add sibling",
     mindmapDeleteNode: "Delete node",
-    mindmapShortcuts: "Tab: child · Enter: sibling · Delete: remove · DblClick: rename · Right-click: menu",
+    mindmapShortcuts: "Tab child · Enter sibling · Delete remove · Click to select, click again to rename · Right-click menu",
     settings: "Settings",
     comingSoon: "Coming soon",
     untitled: "Untitled",
@@ -248,6 +248,11 @@ function updateNavLabels() {
 // ── Page routing ──
 
 function setPage(page) {
+  // Save current mindmap before switching away
+  if (state.page === "mindmaps" && !state.showMindmapTrash) {
+    const mm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
+    if (mm) { clearTimeout(mindmapSaveTimer); saveMindmap(mm); }
+  }
   state.page = page;
   state.showTrash = false;
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === page));
@@ -845,12 +850,16 @@ function bindMindmapEvents() {
     });
   }
 
-  // Node click → select (don't re-render if already selected, to allow dblclick editing)
+  // Node click: first click selects, second click on same node → rename
   document.querySelectorAll(".mm-node").forEach((el) => {
     el.addEventListener("click", (e) => {
       if (e.target.closest(".mm-toggle") || e.target.closest(".mm-edit-input")) return;
       const nodeId = el.parentElement.dataset.nodeId;
-      if (state.selectedNodeId === nodeId) return; // already selected — let dblclick through
+      if (state.selectedNodeId === nodeId) {
+        // Already selected — enter rename mode
+        startRename(mm, nodeId, el);
+        return;
+      }
       state.selectedNodeId = nodeId;
       renderMindmaps();
     });
@@ -866,35 +875,36 @@ function bindMindmapEvents() {
     });
   });
 
-  // Double-click to rename
-  document.querySelectorAll(".mm-text").forEach((span) => {
-    span.addEventListener("dblclick", (e) => {
-      const nodeId = span.dataset.edit;
-      const node = findNode(mm.root, nodeId);
-      if (!node) return;
-      const input = document.createElement("input");
-      input.value = node.text;
-      input.className = "mm-edit-input";
-      span.replaceWith(input);
-      input.focus();
-      input.select();
-      const commit = () => {
-        node.text = input.value.trim() || " ";
-        scheduleMindmapSave(mm);
-        renderMindmaps();
-      };
-      input.addEventListener("blur", () => setTimeout(commit, 50));
-      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } });
-    });
-  });
+  // Rename: start inline editing on a node element
+function startRename(mm, nodeId, nodeEl) {
+  const node = findNode(mm.root, nodeId);
+  if (!node) return;
+  const span = nodeEl.querySelector(".mm-text");
+  if (!span) return;
+  const input = document.createElement("input");
+  input.value = node.text;
+  input.className = "mm-edit-input";
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    node.text = input.value.trim() || " ";
+    scheduleMindmapSave(mm);
+    renderMindmaps();
+  };
+  input.addEventListener("blur", () => setTimeout(commit, 50));
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } });
+}
 
-  // Right-click context menu
+  // Right-click context menu — use current state.mindmaps reference, not closure mm
   document.querySelectorAll(".mm-node-wrapper").forEach((el) => {
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       state.selectedNodeId = el.dataset.nodeId;
-      renderMindmaps(); // ensure selection is reflected before menu
-      showContextMenu(e.clientX, e.clientY, mm);
+      renderMindmaps();
+      // Re-fetch mm from state after re-render
+      const currentMm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
+      if (currentMm) showContextMenu(e.clientX, e.clientY, currentMm);
     });
   });
 
