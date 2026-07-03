@@ -438,12 +438,12 @@ function renderNotes() {
   const toolsHtml = state.showTrash
     ? `<div class="tools">
         <div class="search-feedback ${state.query.trim() ? "visible" : ""}" id="searchFeedback">${searchFeedbackText("")}</div>
-        <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("searchTrash")}" value="${escapeHtml(state.query)}"></div>
+        <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" autocomplete="off" placeholder="${t("searchTrash")}" value="${escapeHtml(state.query)}"></div>
         <div class="trash-header-label">${t("trash")}</div>
       </div>`
     : `<div class="tools">
         <div class="search-feedback ${state.query.trim() ? "visible" : ""}" id="searchFeedback">${searchFeedbackText("")}</div>
-        <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("searchIdeas")}" value="${escapeHtml(state.query)}"></div>
+        <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" autocomplete="off" placeholder="${t("searchIdeas")}" value="${escapeHtml(state.query)}"></div>
         <button class="icon primary" id="new" title="${t("newNote")}">＋</button>
       </div>`;
 
@@ -789,7 +789,7 @@ function renderMindmaps() {
       `<aside class="side">` +
         `<div class="tools">
           <div class="search-feedback ${keyword ? "visible" : ""}" id="searchFeedback">${feedbackText}</div>
-          <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" placeholder="${t("mindmapSearch")}" value="${escapeHtml(state.mindmapQuery)}"></div>
+          <div class="search" id="searchBox"><span class="search-icon">⌕</span><input id="search" autocomplete="off" placeholder="${t("mindmapSearch")}" value="${escapeHtml(state.mindmapQuery)}"></div>
           ${state.showMindmapTrash
             ? `<div class="trash-header-label">${t("trash")}</div>`
             : `<button class="icon primary" id="newMindmap" title="${t("mindmapUntitled")}">＋</button>`}
