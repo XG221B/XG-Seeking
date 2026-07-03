@@ -465,7 +465,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 
 .mm-edit-hint {
   text-align: right;
-  font-size: 11px;
 }
 
 .mm-tree { flex: 1; overflow-y: auto; padding: 20px 46px 40px; }
