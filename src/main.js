@@ -32,6 +32,7 @@ const STRINGS = {
     noMatch: "没有找到匹配内容",
     noNotes: "还没有笔记",
     found: "找到",
+    foundUnit: "篇",
     filtered: "已筛选",
     startWriting: "开始记录",
     newNote: "新建",
@@ -88,6 +89,7 @@ const STRINGS = {
     noMatch: "No matches found",
     noNotes: "No notes yet",
     found: "Found",
+    foundUnit: "",
     filtered: "Filtered",
     startWriting: "Start writing",
     newNote: "New",
@@ -370,7 +372,8 @@ function noteListHtml() {
 
 function searchFeedbackText(prefix) {
   if (!state.query.trim()) return "";
-  return `${t(prefix || "found")} ${filteredNotes().length}`;
+  const unit = t("foundUnit");
+  return `${t(prefix || "found")} ${filteredNotes().length}${unit}`;
 }
 
 function updateSearchFeedback(prefix) {
@@ -779,7 +782,7 @@ function renderMindmaps() {
       ).join("")
     : `<p class="message">${state.showMindmapTrash ? t("mindmapTrashEmpty") : t("mindmapEmpty")}</p>`;
 
-  const feedbackText = keyword ? `${t("found")} ${filtered.length}` : "";
+  const feedbackText = keyword ? `${t("found")} ${filtered.length}${t("foundUnit")}` : "";
 
   app.innerHTML =
     `<section class="notes">` +
