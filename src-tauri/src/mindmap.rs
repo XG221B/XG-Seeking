@@ -22,7 +22,8 @@ pub struct Mindmap {
     pub id: String,
     pub title: String,
     pub updated_at: u64,
-    pub root: MindmapNode,
+    #[serde(default)]
+    pub nodes: Vec<MindmapNode>,
 }
 
 fn mindmaps_dir(app_data: &PathBuf) -> PathBuf {
@@ -63,15 +64,6 @@ fn now_millis() -> Result<u64, String> {
     u64::try_from(millis).map_err(|e| e.to_string())
 }
 
-fn default_root() -> MindmapNode {
-    MindmapNode {
-        id: "n1".into(),
-        text: String::new(),
-        collapsed: false,
-        children: vec![],
-    }
-}
-
 // ── Public API ──
 
 pub fn list_mindmaps(app_data: &PathBuf) -> Result<Vec<Mindmap>, String> {
@@ -98,7 +90,7 @@ pub fn create_mindmap(app_data: &PathBuf) -> Result<Mindmap, String> {
         id: id.clone(),
         title: "未命名导图".into(),
         updated_at: ts,
-        root: default_root(),
+        nodes: vec![],
     };
     let path = mindmap_path(app_data, &id)?;
     let raw = serde_json::to_string(&mm).map_err(|e| e.to_string())?;

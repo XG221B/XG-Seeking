@@ -246,7 +246,7 @@ async function handleApi(request, response) {
       id,
       title: "未命名导图",
       updatedAt: nowMillis(),
-      root: { id: "n1", text: "", collapsed: false, children: [] },
+      nodes: [],
     };
     await writeFile(mindmapPath(id), JSON.stringify(mm), "utf8");
     return sendJson(response, mm);

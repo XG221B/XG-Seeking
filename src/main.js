@@ -803,7 +803,7 @@ function renderMindmapCanvas(mm) {
       <span class="mm-shortcuts">${t("mindmapShortcuts")}</span>
     </div>
     <div class="mm-tree" id="mmTree">
-      ${renderNode(mm.root)}
+      ${renderNodes(mm.nodes)}
     </div>
   </div>`;
 }
@@ -876,7 +876,7 @@ function bindMindmapEvents() {
     editInput.focus();
     editInput.select();
     const commitEdit = () => {
-      const node = findNode(mm.root, editInput.dataset.nodeId);
+      const node = findNodeInList(mm.nodes, editInput.dataset.nodeId);
       if (node) { node.text = editInput.value.trim() || " "; scheduleMindmapSave(mm); }
       state.editingNode = false;
       renderMindmaps();
@@ -892,7 +892,7 @@ function bindMindmapEvents() {
   document.querySelectorAll(".mm-toggle").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      toggleNode(mm.root, btn.dataset.toggle);
+      toggleNode(mm.nodes, btn.dataset.toggle);
       scheduleMindmapSave(mm);
       renderMindmaps();
     });
@@ -915,6 +915,10 @@ function bindMindmapEvents() {
 
   // Keyboard shortcuts
   document.addEventListener("keydown", mindmapKeyHandler);
+}
+
+function renderNodes(nodes, depth = 0) {
+  return nodes.map((node) => renderNode(node, depth)).join("");
 }
 
 function renderNode(node, depth = 0) {
@@ -984,6 +988,14 @@ function getCurrentMindmap() {
   return state.mindmaps.find((m) => m.id === state.selectedMindmapId) || null;
 }
 
+function findNodeInList(nodes, id) {
+  for (const node of nodes) {
+    const found = findNode(node, id);
+    if (found) return found;
+  }
+  return null;
+}
+
 function findNode(root, id) {
   if (root.id === id) return root;
   for (const child of root.children) {
@@ -991,6 +1003,15 @@ function findNode(root, id) {
     if (found) return found;
   }
   return null;
+}
+
+function findParentInList(nodes, id, parent = null) {
+  for (const node of nodes) {
+    if (node.id === id) return parent;
+    const found = findParent(node, id, node);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 function findParent(root, id, parent = null) {
@@ -1002,43 +1023,80 @@ function findParent(root, id, parent = null) {
   return undefined;
 }
 
-function toggleNode(root, id) {
-  const node = findNode(root, id);
+function toggleNode(nodes, id) {
+  const node = findNodeInList(nodes, id);
   if (node) node.collapsed = !node.collapsed;
 }
 
 function addChildNode(mm) {
-  const node = state.selectedNodeId ? findNode(mm.root, state.selectedNodeId) : mm.root;
-  if (!node) return;
+  const node = state.selectedNodeId ? findNodeInList(mm.nodes, state.selectedNodeId) : null;
+  if (!node) {
+    // No node selected or not found — add top-level node
+    const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+    mm.nodes.push(newNode);
+    state.selectedNodeId = newNode.id;
+    state.editingNode = true;
+    scheduleMindmapSave(mm);
+    renderMindmaps();
+    return;
+  }
   const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
   node.children.push(newNode);
   node.collapsed = false;
   state.selectedNodeId = newNode.id;
+  state.editingNode = true;
   scheduleMindmapSave(mm);
   renderMindmaps();
 }
 
 function addSiblingNode(mm) {
-  if (!state.selectedNodeId || state.selectedNodeId === mm.root.id) return addChildNode(mm);
-  const parent = findParent(mm.root, state.selectedNodeId);
-  if (!parent) return;
+  if (!state.selectedNodeId) return addChildNode(mm);
+  // Check if selected node is a top-level node
+  const topIdx = mm.nodes.findIndex((n) => n.id === state.selectedNodeId);
+  if (topIdx >= 0) {
+    // Top-level sibling
+    const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+    mm.nodes.splice(topIdx + 1, 0, newNode);
+    state.selectedNodeId = newNode.id;
+    state.editingNode = true;
+    scheduleMindmapSave(mm);
+    renderMindmaps();
+    return;
+  }
+  // Nested sibling
+  const parent = findParentInList(mm.nodes, state.selectedNodeId);
+  if (!parent) return addChildNode(mm);
   const idx = parent.children.findIndex((c) => c.id === state.selectedNodeId);
   const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
   parent.children.splice(idx + 1, 0, newNode);
   state.selectedNodeId = newNode.id;
+  state.editingNode = true;
   scheduleMindmapSave(mm);
   renderMindmaps();
 }
 
 function deleteNode(mm) {
-  if (!state.selectedNodeId || state.selectedNodeId === mm.root.id) return;
-  const parent = findParent(mm.root, state.selectedNodeId);
+  if (!state.selectedNodeId) return;
+  // Check if it's a top-level node
+  const topIdx = mm.nodes.findIndex((n) => n.id === state.selectedNodeId);
+  if (topIdx >= 0) {
+    mm.nodes.splice(topIdx, 1);
+    // Select neighbor
+    if (topIdx > 0) state.selectedNodeId = mm.nodes[topIdx - 1]?.id || "";
+    else if (mm.nodes.length > 0) state.selectedNodeId = mm.nodes[0].id;
+    else state.selectedNodeId = "";
+    state.editingNode = false;
+    scheduleMindmapSave(mm);
+    renderMindmaps();
+    return;
+  }
+  // Nested node
+  const parent = findParentInList(mm.nodes, state.selectedNodeId);
   if (!parent) return;
   const idx = parent.children.findIndex((c) => c.id === state.selectedNodeId);
   parent.children = parent.children.filter((c) => c.id !== state.selectedNodeId);
-  // Select neighbor: prev sibling > next sibling > parent
-  if (idx > 0) state.selectedNodeId = parent.children[idx - 1].id;
-  else if (parent.children.length > 0) state.selectedNodeId = parent.children[0].id;
+  if (idx > 0) state.selectedNodeId = parent.children[idx - 1]?.id || "";
+  else if (parent.children.length > 0) state.selectedNodeId = parent.children[0]?.id || "";
   else state.selectedNodeId = parent.id;
   state.editingNode = false;
   scheduleMindmapSave(mm);
@@ -1073,8 +1131,8 @@ async function createMindmap() {
   const mm = await invoke("create_mindmap");
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
-  state.selectedNodeId = mm.root.id;
-  state.editingNode = true;
+  state.selectedNodeId = "";
+  state.editingNode = false;
   renderMindmaps();
 }
 
