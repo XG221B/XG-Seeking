@@ -1137,7 +1137,7 @@ async function createMindmap() {
 }
 
 async function saveMindmap(mm) {
-  await invoke("save_mindmap", mm);
+  await invoke("save_mindmap", { mm });
 }
 
 async function trashMindmap(id) {
