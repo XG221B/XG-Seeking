@@ -20,7 +20,7 @@ const STRINGS = {
     mindmapAddChild: "添加子节点",
     mindmapAddSibling: "添加同级节点",
     mindmapDeleteNode: "删除节点",
-    mindmapShortcuts: "Tab 子节点 · Enter 同级节点 · Delete 删除",
+    mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
     settings: "设置",
     comingSoon: "暂未开放",
@@ -804,7 +804,10 @@ function renderMindmapCanvas(mm) {
   return `<div class="mm-canvas" id="mmCanvas">
     <div class="mm-toolbar">
       <input class="mm-title-input" id="mmTitle" value="${escapeHtml(mm.title)}" placeholder="${t("mindmapUntitled")}">
-      <span class="mm-shortcuts">${t("mindmapShortcuts")}<br>${t("mindmapEditHint")}</span>
+      <div class="mm-shortcuts">
+        <span>${t("mindmapShortcuts")}</span>
+        <span class="mm-edit-hint">${t("mindmapEditHint")}</span>
+      </div>
     </div>
     <div class="mm-tree" id="mmTree">
       ${renderNodes(mm.nodes)}
