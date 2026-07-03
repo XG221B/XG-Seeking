@@ -249,10 +249,10 @@ function updateNavLabels() {
 // ── Page routing ──
 
 async function setPage(page) {
-  // Save current mindmap before switching away
+  // Save current mindmap before switching away (don't block on failure)
   if (state.page === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
-    if (mm) { clearTimeout(mindmapSaveTimer); await saveMindmap(mm); }
+    if (mm) { clearTimeout(mindmapSaveTimer); try { await saveMindmap(mm); } catch {} }
   }
   state.page = page;
   state.showTrash = false;
@@ -898,14 +898,17 @@ function bindMindmapEvents() {
     });
   });
 
-  // Right-click context menu
+  // Right-click context menu — don't re-render, just update selection visually
   document.querySelectorAll(".mm-node-wrapper").forEach((el) => {
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      // Update selection state and highlight
       state.selectedNodeId = el.dataset.nodeId;
       state.editingNode = false;
-      renderMindmaps();
-      setTimeout(() => showContextMenu(e.clientX, e.clientY), 0);
+      document.querySelectorAll(".mm-node.selected").forEach((n) => n.classList.remove("selected"));
+      const nodeDiv = el.querySelector(".mm-node");
+      if (nodeDiv) nodeDiv.classList.add("selected");
+      showContextMenu(e.clientX, e.clientY);
     });
   });
 
@@ -1030,8 +1033,13 @@ function deleteNode(mm) {
   if (!state.selectedNodeId || state.selectedNodeId === mm.root.id) return;
   const parent = findParent(mm.root, state.selectedNodeId);
   if (!parent) return;
+  const idx = parent.children.findIndex((c) => c.id === state.selectedNodeId);
   parent.children = parent.children.filter((c) => c.id !== state.selectedNodeId);
-  state.selectedNodeId = "";
+  // Select neighbor: prev sibling > next sibling > parent
+  if (idx > 0) state.selectedNodeId = parent.children[idx - 1].id;
+  else if (parent.children.length > 0) state.selectedNodeId = parent.children[0].id;
+  else state.selectedNodeId = parent.id;
+  state.editingNode = false;
   scheduleMindmapSave(mm);
   renderMindmaps();
 }
