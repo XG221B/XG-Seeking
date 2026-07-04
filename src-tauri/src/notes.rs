@@ -1,7 +1,8 @@
 use serde::Serialize;
 use std::{
+    cmp::Reverse,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -14,15 +15,15 @@ pub struct Note {
     pub updated_at: u64,
 }
 
-fn notes_dir(app_data: &PathBuf) -> PathBuf {
+fn notes_dir(app_data: &Path) -> PathBuf {
     app_data.join("notes")
 }
 
-fn trash_dir(app_data: &PathBuf) -> PathBuf {
+fn trash_dir(app_data: &Path) -> PathBuf {
     app_data.join("trash")
 }
 
-pub fn ensure_dirs(app_data: &PathBuf) -> Result<(), String> {
+pub fn ensure_dirs(app_data: &Path) -> Result<(), String> {
     fs::create_dir_all(notes_dir(app_data)).map_err(|e| e.to_string())?;
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| e.to_string())?;
     Ok(())
@@ -39,7 +40,7 @@ fn validate_note_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn note_path(app_data: &PathBuf, id: &str) -> Result<PathBuf, String> {
+fn note_path(app_data: &Path, id: &str) -> Result<PathBuf, String> {
     validate_note_id(id)?;
     // Canonicalize the directory (catches symlink tricks), then join the safe id.
     // File may not exist yet (e.g. during create), so only canonicalize the dir.
@@ -62,7 +63,7 @@ fn now_millis() -> Result<u64, String> {
     u64::try_from(millis).map_err(|e| e.to_string())
 }
 
-fn modified_millis(path: &PathBuf) -> Result<u64, String> {
+fn modified_millis(path: &Path) -> Result<u64, String> {
     let millis = fs::metadata(path)
         .map_err(|e| e.to_string())?
         .modified()
@@ -124,12 +125,12 @@ fn serialize_note(title: &str, body: &str) -> String {
     format!("# {title}\n\n{}", body.replace("\r\n", "\n"))
 }
 
-fn read_note_from(path: &PathBuf, id: &str) -> Result<Note, String> {
+fn read_note_from(path: &Path, id: &str) -> Result<Note, String> {
     let markdown = fs::read_to_string(path).map_err(|e| e.to_string())?;
     Ok(parse_note(id.into(), markdown, modified_millis(path)?))
 }
 
-fn list_notes_in(dir: &PathBuf) -> Result<Vec<Note>, String> {
+fn list_notes_in(dir: &Path) -> Result<Vec<Note>, String> {
     let mut notes = Vec::new();
     for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -143,13 +144,13 @@ fn list_notes_in(dir: &PathBuf) -> Result<Vec<Note>, String> {
             notes.push(read_note_from(&path, &id)?);
         }
     }
-    notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    notes.sort_by_key(|b| Reverse(b.updated_at));
     Ok(notes)
 }
 
 // ── Public API ──
 
-pub fn list_notes(app_data: &PathBuf) -> Result<Vec<Note>, String> {
+pub fn list_notes(app_data: &Path) -> Result<Vec<Note>, String> {
     list_notes_in(&notes_dir(app_data))
 }
 
@@ -166,7 +167,7 @@ fn validate_note_content(title: &str, body: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn create_note(app_data: &PathBuf) -> Result<Note, String> {
+pub fn create_note(app_data: &Path) -> Result<Note, String> {
     let id = format!("note-{}", now_millis()?);
     let ts = now_millis()?;
     let path = note_path(app_data, &id)?;
@@ -180,7 +181,7 @@ pub fn create_note(app_data: &PathBuf) -> Result<Note, String> {
 }
 
 pub fn save_note(
-    app_data: &PathBuf,
+    app_data: &Path,
     id: String,
     title: String,
     body: String,
@@ -197,7 +198,7 @@ pub fn save_note(
 }
 
 /// Soft-delete: move the note from notes/ to trash/
-pub fn delete_note(app_data: &PathBuf, id: &str) -> Result<(), String> {
+pub fn delete_note(app_data: &Path, id: &str) -> Result<(), String> {
     let src = note_path(app_data, id)?;
     if !src.exists() {
         return Ok(());
@@ -209,7 +210,7 @@ pub fn delete_note(app_data: &PathBuf, id: &str) -> Result<(), String> {
 }
 
 /// List notes currently in trash
-pub fn list_trash(app_data: &PathBuf) -> Result<Vec<Note>, String> {
+pub fn list_trash(app_data: &Path) -> Result<Vec<Note>, String> {
     let dir = trash_dir(app_data);
     if !dir.exists() {
         return Ok(Vec::new());
@@ -218,7 +219,7 @@ pub fn list_trash(app_data: &PathBuf) -> Result<Vec<Note>, String> {
 }
 
 /// Restore a note from trash/ back to notes/
-pub fn restore_note(app_data: &PathBuf, id: &str) -> Result<Note, String> {
+pub fn restore_note(app_data: &Path, id: &str) -> Result<Note, String> {
     let src = trash_dir(app_data).join(format!("{id}.md"));
     if !src.exists() {
         return Err("Note not found in trash".into());
@@ -229,7 +230,7 @@ pub fn restore_note(app_data: &PathBuf, id: &str) -> Result<Note, String> {
 }
 
 /// Permanently delete a note from trash
-pub fn delete_permanently(app_data: &PathBuf, id: &str) -> Result<(), String> {
+pub fn delete_permanently(app_data: &Path, id: &str) -> Result<(), String> {
     let path = trash_dir(app_data).join(format!("{id}.md"));
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;

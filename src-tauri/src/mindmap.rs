@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Reverse,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -26,15 +27,15 @@ pub struct Mindmap {
     pub nodes: Vec<MindmapNode>,
 }
 
-fn mindmaps_dir(app_data: &PathBuf) -> PathBuf {
+fn mindmaps_dir(app_data: &Path) -> PathBuf {
     app_data.join("mindmaps")
 }
 
-fn trash_dir(app_data: &PathBuf) -> PathBuf {
+fn trash_dir(app_data: &Path) -> PathBuf {
     app_data.join("mindmaps_trash")
 }
 
-pub fn ensure_dirs(app_data: &PathBuf) -> Result<(), String> {
+pub fn ensure_dirs(app_data: &Path) -> Result<(), String> {
     fs::create_dir_all(mindmaps_dir(app_data)).map_err(|e| e.to_string())?;
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| e.to_string())?;
     Ok(())
@@ -51,7 +52,7 @@ fn validate_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn mindmap_path(app_data: &PathBuf, id: &str) -> Result<PathBuf, String> {
+fn mindmap_path(app_data: &Path, id: &str) -> Result<PathBuf, String> {
     validate_id(id)?;
     Ok(mindmaps_dir(app_data).join(format!("{id}.json")))
 }
@@ -66,7 +67,7 @@ fn now_millis() -> Result<u64, String> {
 
 // ── Public API ──
 
-pub fn list_mindmaps(app_data: &PathBuf) -> Result<Vec<Mindmap>, String> {
+pub fn list_mindmaps(app_data: &Path) -> Result<Vec<Mindmap>, String> {
     let dir = mindmaps_dir(app_data);
     let mut maps = Vec::new();
     for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
@@ -79,11 +80,11 @@ pub fn list_mindmaps(app_data: &PathBuf) -> Result<Vec<Mindmap>, String> {
         let mm: Mindmap = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
         maps.push(mm);
     }
-    maps.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    maps.sort_by_key(|b| Reverse(b.updated_at));
     Ok(maps)
 }
 
-pub fn create_mindmap(app_data: &PathBuf) -> Result<Mindmap, String> {
+pub fn create_mindmap(app_data: &Path) -> Result<Mindmap, String> {
     let id = format!("mindmap-{}", now_millis()?);
     let ts = now_millis()?;
     let mm = Mindmap {
@@ -98,7 +99,7 @@ pub fn create_mindmap(app_data: &PathBuf) -> Result<Mindmap, String> {
     Ok(mm)
 }
 
-pub fn save_mindmap(app_data: &PathBuf, mm: Mindmap) -> Result<Mindmap, String> {
+pub fn save_mindmap(app_data: &Path, mm: Mindmap) -> Result<Mindmap, String> {
     let path = mindmap_path(app_data, &mm.id)?;
     let mut saved = mm;
     saved.updated_at = now_millis()?;
@@ -107,7 +108,7 @@ pub fn save_mindmap(app_data: &PathBuf, mm: Mindmap) -> Result<Mindmap, String> 
     Ok(saved)
 }
 
-pub fn delete_mindmap(app_data: &PathBuf, id: &str) -> Result<(), String> {
+pub fn delete_mindmap(app_data: &Path, id: &str) -> Result<(), String> {
     let src = mindmap_path(app_data, id)?;
     if !src.exists() {
         return Ok(());
@@ -117,7 +118,7 @@ pub fn delete_mindmap(app_data: &PathBuf, id: &str) -> Result<(), String> {
     fs::rename(&src, &dst).map_err(|e| e.to_string())
 }
 
-pub fn list_trash(app_data: &PathBuf) -> Result<Vec<Mindmap>, String> {
+pub fn list_trash(app_data: &Path) -> Result<Vec<Mindmap>, String> {
     let dir = trash_dir(app_data);
     if !dir.exists() {
         return Ok(vec![]);
@@ -134,11 +135,11 @@ pub fn list_trash(app_data: &PathBuf) -> Result<Vec<Mindmap>, String> {
             maps.push(mm);
         }
     }
-    maps.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    maps.sort_by_key(|b| Reverse(b.updated_at));
     Ok(maps)
 }
 
-pub fn restore_mindmap(app_data: &PathBuf, id: &str) -> Result<Mindmap, String> {
+pub fn restore_mindmap(app_data: &Path, id: &str) -> Result<Mindmap, String> {
     let src = trash_dir(app_data).join(format!("{id}.json"));
     if !src.exists() {
         return Err("Mindmap not found in trash".into());
@@ -149,7 +150,7 @@ pub fn restore_mindmap(app_data: &PathBuf, id: &str) -> Result<Mindmap, String> 
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
-pub fn delete_permanently(app_data: &PathBuf, id: &str) -> Result<(), String> {
+pub fn delete_permanently(app_data: &Path, id: &str) -> Result<(), String> {
     let path = trash_dir(app_data).join(format!("{id}.json"));
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;

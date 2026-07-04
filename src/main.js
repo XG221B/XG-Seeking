@@ -696,11 +696,16 @@ async function saveNote() {
   if (!titleField || !bodyField) return;
 
   const id = state.selectedId;
-  const saved = await invoke("save_note", {
-    id,
-    title: titleField.value,
-    body: bodyField.value,
-  });
+  let saved;
+  try {
+    saved = await invoke("save_note", {
+      id,
+      title: titleField.value,
+      body: bodyField.value,
+    });
+  } catch {
+    return;
+  }
 
   const note = state.notes.find((item) => item.id === saved.id);
   if (note) {
@@ -719,14 +724,15 @@ async function trashNote(id) {
   if (!id) return;
   clearTimeout(autoSaveTimer);
 
-  await invoke("delete_note", { id });
+  try { await invoke("delete_note", { id }); } catch (e) { alert(e); return; }
   state.notes = state.notes.filter((note) => note.id !== id);
   if (state.selectedId === id) state.selectedId = state.notes[0] ? state.notes[0].id : "";
   renderNotes();
 }
 
 async function restoreNote(id) {
-  const restored = await invoke("restore_note", { id });
+  let restored;
+  try { restored = await invoke("restore_note", { id }); } catch (e) { alert(e); return; }
   state.trashNotes = state.trashNotes.filter((n) => n.id !== id);
   state.notes.unshift(restored);
 
@@ -740,7 +746,7 @@ async function restoreNote(id) {
 
 async function deletePermanently(id) {
   if (!confirm(t("deleteForeverConfirm"))) return;
-  await invoke("delete_permanently", { id });
+  try { await invoke("delete_permanently", { id }); } catch (e) { alert(e); return; }
   state.trashNotes = state.trashNotes.filter((n) => n.id !== id);
   if (state.trashNotes.length === 0) {
     state.showTrash = false;
@@ -755,7 +761,7 @@ async function clearAllTrash() {
   if (state.trashNotes.length === 0) return;
   if (!confirm(`${t("clearTrashConfirm")}（${state.trashNotes.length} ${t("notesWillBeDeleted")}）`)) return;
   for (const note of state.trashNotes) {
-    await invoke("delete_permanently", { id: note.id });
+    try { await invoke("delete_permanently", { id: note.id }); } catch (e) { alert(e); return; }
   }
   state.trashNotes = [];
   state.showTrash = false;
@@ -1141,7 +1147,7 @@ async function loadMindmaps() {
     renderMindmaps();
     loadMindmapTrashSilent();
   } catch (e) {
-    app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>读取失败</h1><div class="quiet">${escapeHtml(e)}</div></div></section>`;
+    app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadFailed")}</h1><div class="quiet">${escapeHtml(e)}</div></div></section>`;
   }
 }
 
@@ -1150,7 +1156,8 @@ async function loadMindmapTrashSilent() {
 }
 
 async function createMindmap() {
-  const mm = await invoke("create_mindmap");
+  let mm;
+  try { mm = await invoke("create_mindmap"); } catch (e) { alert(e); return; }
   mm.title = t("mindmapUntitled");
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
@@ -1160,18 +1167,19 @@ async function createMindmap() {
 }
 
 async function saveMindmap(mm) {
-  await invoke("save_mindmap", { mm });
+  try { await invoke("save_mindmap", { mm }); } catch {}
 }
 
 async function trashMindmap(id) {
-  await invoke("delete_mindmap", { id });
+  try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
   renderMindmaps();
 }
 
 async function restoreMindmap(id) {
-  const mm = await invoke("restore_mindmap", { id });
+  let mm;
+  try { mm = await invoke("restore_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmapTrash = state.mindmapTrash.filter((m) => m.id !== id);
   state.mindmaps.unshift(mm);
   if (state.mindmapTrash.length === 0) state.showMindmapTrash = false;
@@ -1186,7 +1194,7 @@ async function toggleMindmapTrashView() {
     state.mindmapQuery = "";
     renderMindmaps();
   } else {
-    state.mindmapTrash = await invoke("list_mindmap_trash");
+    try { state.mindmapTrash = await invoke("list_mindmap_trash"); } catch (e) { alert(e); return; }
     state.showMindmapTrash = true;
     state.selectedMindmapId = state.mindmapTrash[0]?.id || "";
     state.mindmapQuery = "";
@@ -1198,7 +1206,7 @@ async function clearAllMindmapTrash() {
   if (state.mindmapTrash.length === 0) return;
   if (!confirm(t("mindmapClearConfirm"))) return;
   for (const m of state.mindmapTrash) {
-    await invoke("delete_mindmap_permanently", { id: m.id });
+    try { await invoke("delete_mindmap_permanently", { id: m.id }); } catch (e) { alert(e); return; }
   }
   state.mindmapTrash = [];
   state.showMindmapTrash = false;
