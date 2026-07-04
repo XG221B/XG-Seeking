@@ -664,6 +664,16 @@ function updateTrashBar() {
   }
 }
 
+function updateMindmapTrashBar() {
+  const trashBar = document.querySelector(".mindmap-trash-bar");
+  if (!trashBar || state.showMindmapTrash) return;
+  const toggle = trashBar.querySelector(".trash-toggle span:last-child");
+  if (toggle) {
+    const count = state.mindmapTrash.length;
+    toggle.textContent = `${t("trash")}${count ? " (" + count + ")" : ""}`;
+  }
+}
+
 async function toggleTrashView() {
   if (state.showTrash) {
     state.showTrash = false;
@@ -1178,6 +1188,7 @@ async function trashMindmap(id) {
   try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
+  loadMindmapTrashSilent();
   renderMindmaps();
 }
 

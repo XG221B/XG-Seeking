@@ -420,10 +420,13 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 .mindmap-row:hover, .mindmap-row.active { background: var(--color-surface); }
 
 .mindmap-item {
-  display: block; width: 100%; min-height: 54px; padding: 12px 14px;
-  border: 0; background: transparent; color: var(--color-text);
-  text-align: left; font-size: 15px; cursor: pointer;
+  display: grid; gap: 6px; width: 100%; min-height: 64px;
+  padding: 12px 14px; border: 0; background: transparent;
+  color: var(--color-text); text-align: left; cursor: pointer;
 }
+
+.mindmap-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mindmap-item time { color: var(--color-text-dim); font-size: 13px; }
 
 .mindmap-delete, .mindmap-restore {
   display: grid; width: 28px; height: 28px; place-items: center;

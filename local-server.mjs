@@ -306,11 +306,13 @@ function serveStatic(request, response) {
     ".ico": "image/x-icon",
   };
 
-  response.writeHead(200, { "Content-Type": types[extname(file)] || "application/octet-stream" });
-  createReadStream(file).on("error", () => {
+  if (!existsSync(file)) {
     response.writeHead(404);
     response.end();
-  }).pipe(response);
+    return;
+  }
+  response.writeHead(200, { "Content-Type": types[extname(file)] || "application/octet-stream" });
+  createReadStream(file).pipe(response);
 }
 
 createServer((request, response) => {
