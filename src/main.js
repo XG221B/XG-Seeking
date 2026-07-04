@@ -22,6 +22,8 @@ const STRINGS = {
     mindmapDeleteNode: "删除节点",
     mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
+    editToggle: "编辑",
+    previewToggle: "预览",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -79,6 +81,8 @@ const STRINGS = {
     mindmapDeleteNode: "Delete node",
     mindmapShortcuts: "Tab child · Enter sibling · Delete remove",
     mindmapEditHint: "Ctrl+Enter to confirm edit",
+    editToggle: "Edit",
+    previewToggle: "Preview",
     settings: "Settings",
     comingSoon: "Coming soon",
     untitled: "Untitled",
@@ -475,7 +479,7 @@ function renderEditor(note) {
       ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
       : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
-      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? "Edit" : "Preview"}">${state.previewMode ? "✎" : "👁"}</button>
+      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "👁"}</button>
     </div>` +
   `</div>`;
 }
@@ -782,7 +786,7 @@ function renderMindmaps() {
   const listHtml = filtered.length
     ? filtered.map((m) =>
         `<div class="mindmap-row ${m.id === state.selectedMindmapId ? "active" : ""}">` +
-        `<button class="mindmap-item" data-id="${m.id}">${escapeHtml(m.title)}</button>` +
+        `<button class="mindmap-item" data-id="${m.id}"><strong>${escapeHtml(m.title)}</strong><time>${formatDate(m.updatedAt)}</time></button>` +
         (state.showMindmapTrash
           ? `<button class="mindmap-restore" data-restore="${m.id}" title="${t("restore")}">↩</button>`
           : `<button class="mindmap-delete" data-delete="${m.id}" title="${t("delete")}">×</button>`) +
@@ -806,7 +810,7 @@ function renderMindmaps() {
         `<div class="trash-bar ${state.showMindmapTrash ? "active" : ""}">
           <button class="trash-toggle" id="toggleMindmapTrash">
             <span class="trash-icon">${state.showMindmapTrash ? "←" : "🗑"}</span>
-            <span>${state.showMindmapTrash ? t("mindmapBack") : t("trash")}</span>
+            <span>${state.showMindmapTrash ? t("mindmapBack") : `${t("trash")}${state.mindmapTrash.length ? " (" + state.mindmapTrash.length + ")" : ""}`}</span>
           </button>
           ${state.showMindmapTrash ? `<button class="trash-clear" id="clearMindmapTrash">${t("clear")}</button>` : ""}
         </div>` +
