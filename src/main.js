@@ -122,7 +122,9 @@ const STRINGS = {
 let lang = "zh";
 
 function t(key) {
-  return STRINGS[lang]?.[key] || STRINGS.zh[key] || key;
+  const val = STRINGS[lang]?.[key];
+  if (val !== undefined) return val;
+  return STRINGS.zh[key] !== undefined ? STRINGS.zh[key] : key;
 }
 
 function setLang(newLang) {
