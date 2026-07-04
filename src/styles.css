@@ -142,7 +142,7 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 .notes {
   display: grid;
   grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
-  min-height: calc(100vh - 132px); overflow: hidden;
+  height: calc(100vh - 132px); overflow: hidden;
   border: 1px solid var(--color-border); border-radius: 8px;
   background: var(--color-surface);
 }
@@ -276,7 +276,7 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 
 .form {
   display: grid; grid-template-rows: auto minmax(0, 1fr);
-  height: 100%; min-height: calc(100vh - 132px);
+  height: 100%;
 }
 
 .title {
@@ -295,7 +295,7 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 }
 
 .empty {
-  display: grid; min-height: calc(100vh - 132px);
+  display: grid; height: 100%;
   place-items: center; align-content: center; gap: 12px;
   padding: 28px; color: var(--color-empty-text); text-align: center;
 }
@@ -440,16 +440,9 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 .mindmap-row:hover .mindmap-delete, .mindmap-row:hover .mindmap-restore { opacity: 1; pointer-events: auto; }
 .mindmap-delete:hover, .mindmap-restore:hover { background: var(--color-surface-hover); color: var(--accent); }
 
-.mm-canvas {
-  display: flex; flex-direction: column;
-  min-height: calc(100vh - 132px); padding: 0;
-}
+.mm-canvas { display: flex; flex-direction: column; height: 100%; }
 
-.mm-toolbar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 22px 46px 16px;
-  border-bottom: 1px solid var(--color-border);
-}
+.mm-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 22px 46px 16px; border-bottom: 1px solid var(--color-border); }
 
 .mm-title-input {
   flex: 1; min-width: 0;
