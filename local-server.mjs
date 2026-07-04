@@ -287,9 +287,23 @@ async function handleApi(request, response) {
 }
 
 function serveStatic(request, response) {
+  // Block path traversal in raw URL before parser normalizes it
+  if (request.url.includes("..")) {
+    response.writeHead(403);
+    response.end();
+    return;
+  }
+
   const url = new URL(request.url, `http://127.0.0.1:${port}`);
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const file = resolve(distDir, `.${normalize(requested)}`);
+
+  // Block any path traversal attempts in raw pathname
+  if (requested.includes("..")) {
+    response.writeHead(403);
+    response.end();
+    return;
+  }
 
   // Path traversal protection
   const resolvedDist = resolve(distDir);
