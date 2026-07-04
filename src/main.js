@@ -1188,7 +1188,7 @@ async function trashMindmap(id) {
   try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
-  loadMindmapTrashSilent();
+  await loadMindmapTrashSilent();
   renderMindmaps();
 }
 
