@@ -948,7 +948,8 @@ function bindMindmapEvents() {
     });
   });
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (remove old listener to prevent accumulation)
+  document.removeEventListener("keydown", mindmapKeyHandler);
   document.addEventListener("keydown", mindmapKeyHandler);
 }
 
