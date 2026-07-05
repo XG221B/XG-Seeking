@@ -625,6 +625,7 @@ async function loadNotes() {
     state.notes = await invoke("list_notes");
     if (!state.selectedId && state.notes[0]) state.selectedId = state.notes[0].id;
     state.showTrash = false;
+    await loadTrashSilent();
     renderNotes();
   } catch (error) {
     app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadFailed")}</h1><div class="quiet">${escapeHtml(error)}</div></div></section>`;
