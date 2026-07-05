@@ -253,8 +253,9 @@ async function handleApi(request, response) {
   }
 
   if (command === "save_mindmap") {
-    const mm = { ...body, updatedAt: nowMillis() };
-    await writeFile(mindmapPath(body.id), JSON.stringify(mm), "utf8");
+    const data = body.mm || body; // accept both {mm:{...}} (Tauri) and flat (web)
+    const mm = { ...data, updatedAt: nowMillis() };
+    await writeFile(mindmapPath(data.id), JSON.stringify(mm), "utf8");
     return sendJson(response, mm);
   }
 
