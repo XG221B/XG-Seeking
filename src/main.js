@@ -6,7 +6,6 @@ const STRINGS = {
   zh: {
     home: "首页",
     notes: "记录",
-    spare: "备用",
     mindmaps: "导图",
     mindmapSearch: "搜索导图",
     mindmapUntitled: "未命名导图",
@@ -64,7 +63,6 @@ const STRINGS = {
   en: {
     home: "Home",
     notes: "Notes",
-    spare: "Spare",
     mindmaps: "Mindmap",
     mindmapSearch: "Search mindmaps",
     mindmapUntitled: "Untitled",
@@ -278,7 +276,7 @@ function renderPlaceholder(page) {
     renderSettings();
     return;
   }
-  const title = t(page === "home" ? "home" : "spare");
+  const title = t("home");
   app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${title}</h1><div class="quiet">${t("comingSoon")}</div></div></section>`;
 }
 
