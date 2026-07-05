@@ -661,16 +661,6 @@ function updateTrashBar() {
   }
 }
 
-function updateMindmapTrashBar() {
-  const trashBar = document.querySelector(".mindmap-trash-bar");
-  if (!trashBar || state.showMindmapTrash) return;
-  const toggle = trashBar.querySelector(".trash-toggle span:last-child");
-  if (toggle) {
-    const count = state.mindmapTrash.length;
-    toggle.textContent = `${t("trash")}${count ? " (" + count + ")" : ""}`;
-  }
-}
-
 async function toggleTrashView() {
   if (state.showTrash) {
     state.showTrash = false;
