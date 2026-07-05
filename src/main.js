@@ -1157,8 +1157,8 @@ async function loadMindmaps() {
     state.mindmaps = await invoke("list_mindmaps");
     state.showMindmapTrash = false;
     if (!state.selectedMindmapId && state.mindmaps[0]) state.selectedMindmapId = state.mindmaps[0].id;
+    await loadMindmapTrashSilent();
     renderMindmaps();
-    loadMindmapTrashSilent();
   } catch (e) {
     app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadFailed")}</h1><div class="quiet">${escapeHtml(e)}</div></div></section>`;
   }
