@@ -685,8 +685,8 @@ async function toggleTrashView() {
 async function createNote() {
   try {
     const note = await invoke("create_note");
-    // Override default title with i18n version
     note.title = t("untitled");
+    await invoke("save_note", note);
     state.notes.unshift(note);
     state.selectedId = note.id;
     renderNotes();
@@ -1171,6 +1171,7 @@ async function createMindmap() {
   let mm;
   try { mm = await invoke("create_mindmap"); } catch (e) { alert(e); return; }
   mm.title = t("mindmapUntitled");
+  await saveMindmap(mm);
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
   state.selectedNodeId = "";
