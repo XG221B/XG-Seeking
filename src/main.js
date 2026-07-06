@@ -473,13 +473,13 @@ function renderNotes() {
 function renderEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
-    (state.previewMode
+    (!state.sourceMode
       ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<br\s*\/?>/gi, "\n").replace(/<\/div>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, ""))}</div>`
       : `<textarea class="body" id="body" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
       <select class="toolbar-select" id="fontSize" title="${t("fontSizeUp")}"><option value="10">10px</option><option value="12" selected>12px</option><option value="14">14px</option><option value="16">16px</option><option value="18">18px</option><option value="20">20px</option><option value="24">24px</option><option value="28">28px</option><option value="32">32px</option></select>
       <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#20251f">
-      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "◎"}</button>
+      <button class="toolbar-btn ${!state.sourceMode ? "active" : ""}" id="togglePreview" title="${!state.sourceMode ? t("editToggle") : t("previewToggle")}">${!state.sourceMode ? "✎" : "◎"}</button>
     </div>` +
   `</div>`;
 }
@@ -587,19 +587,26 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-    // Font size/color — dropdown + color
-  const fs=document.getElementById("fontSize");
-  const fc=document.getElementById("fontColor");
-  if(fs&&fc){
-    fs.addEventListener("change",()=>{
-      const px=parseInt(fs.value);const b=document.getElementById("body");if(!b)return;b.focus();
-      const sel=window.getSelection();if(!sel.rangeCount||sel.isCollapsed)return;
-      const r=sel.getRangeAt(0),t=r.toString();if(!t)return;r.deleteContents();
-      const s=document.createElement("span");s.style.fontSize=px+"px";s.textContent=t;r.insertNode(s);
-      sel.removeAllRanges();const nr=document.createRange();nr.selectNodeContents(s);sel.addRange(nr);
+    // Font size/color — global styling on source/preview
+  const fs = document.getElementById("fontSize");
+  const fc = document.getElementById("fontColor");
+  if (fs && fc) {
+    fs.addEventListener("change", () => {
+      state.noteFontSize = parseInt(fs.value);
+      const b = document.getElementById("body");
+      const p = document.getElementById("mdPreview");
+      if (b) b.style.fontSize = fs.value + "px";
+      if (p) p.style.fontSize = fs.value + "px";
     });
-    fc.addEventListener("input",()=>{const b=document.getElementById("body");if(b){b.focus();document.execCommand("styleWithCSS",false,true);document.execCommand("foreColor",false,fc.value)}});
+    fc.addEventListener("input", () => {
+      state.noteTextColor = fc.value;
+      const b = document.getElementById("body");
+      const p = document.getElementById("mdPreview");
+      if (b) b.style.color = fc.value;
+      if (p) p.style.color = fc.value;
+    });
   }
+
 }
 
 function bindEditorAutoSave() {
