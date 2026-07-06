@@ -21,6 +21,9 @@ const STRINGS = {
     mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
     mindmapEmptyHint: "Tab 添加第一个节点",
+    fontSizeUp: "放大字号",
+    fontSizeDown: "缩小字号",
+    fontColor: "文字颜色",
     editToggle: "编辑",
     previewToggle: "预览",
     settings: "设置",
@@ -79,6 +82,9 @@ const STRINGS = {
     mindmapShortcuts: "Tab child · Enter sibling · Delete remove",
     mindmapEditHint: "Ctrl+Enter to confirm edit",
     mindmapEmptyHint: "Tab to add first node",
+    fontSizeUp: "Increase font",
+    fontSizeDown: "Decrease font",
+    fontColor: "Text color",
     editToggle: "Edit",
     previewToggle: "Preview",
     settings: "Settings",
@@ -477,9 +483,9 @@ function renderEditor(note) {
       ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
       : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
-      <button class="toolbar-btn" id="fontDown" title="缩小字号">A-</button>
-      <button class="toolbar-btn" id="fontUp" title="放大字号">A+</button>
-      <input type="color" class="toolbar-color" id="fontColor" title="文字颜色" value="#20251f">
+      <button class="toolbar-btn" id="fontDown" title="${t("fontSizeDown")}">A-</button>
+      <button class="toolbar-btn" id="fontUp" title="${t("fontSizeUp")}">A+</button>
+      <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#20251f">
       <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "◎"}</button>
     </div>` +
   `</div>`;
