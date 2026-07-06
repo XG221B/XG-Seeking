@@ -78,6 +78,7 @@ const STRINGS = {
     mindmapDeleteNode: "Delete node",
     mindmapShortcuts: "Tab child · Enter sibling · Delete remove",
     mindmapEditHint: "Ctrl+Enter to confirm edit",
+    mindmapEmptyHint: "Tab or right-click — add first node",
     editToggle: "Edit",
     previewToggle: "Preview",
     settings: "Settings",
@@ -829,7 +830,7 @@ function renderMindmapCanvas(mm) {
       </div>
     </div>
     <div class="mm-tree" id="mmTree">
-      ${mm.nodes.length ? renderNodes(mm.nodes) : `<div class="mm-empty-hint"><p>Tab 或右键 — 添加第一个节点</p></div>`}
+      ${mm.nodes.length ? renderNodes(mm.nodes) : `<div class="mm-empty-hint"><p>${t("mindmapEmptyHint")}</p></div>`}
     </div>
   </div>`;
 }

@@ -447,6 +447,8 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 
 .mm-tree { flex: 1; overflow: auto; padding: 20px 46px 40px; }
 
+.mm-empty-hint { display: grid; height: 100%; place-items: center; color: var(--color-text-dim); font-size: 14px; }
+
 .mm-node-wrapper { margin-bottom: 2px; min-width: max-content; }
 
 .mm-node {
