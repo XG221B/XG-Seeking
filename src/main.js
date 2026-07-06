@@ -480,8 +480,8 @@ function renderEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (state.previewMode
-      ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
-      : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
+      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body)}</div>`
+      : `<textarea class="body" id="body" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
       <button class="toolbar-btn" id="fontDown" title="${t("fontSizeDown")}">A-</button>
       <button class="toolbar-btn" id="fontUp" title="${t("fontSizeUp")}">A+</button>
@@ -588,31 +588,33 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-  // Font size/color toolbar — wrap selection with span
+  // Font size/color toolbar
   const fontDown = document.getElementById("fontDown");
   const fontUp = document.getElementById("fontUp");
   const fontColor = document.getElementById("fontColor");
   if (fontDown && fontUp && fontColor) {
-    let curSize = 17;
-    function wrapSel(style) {
-      const el = document.getElementById("body");
-      if (!el) return;
-      el.focus();
-      const sel = window.getSelection();
-      if (!sel.rangeCount || sel.isCollapsed) return;
-      const range = sel.getRangeAt(0);
-      const frag = range.extractContents();
-      const span = document.createElement("span");
-      span.setAttribute("style", style);
-      span.appendChild(frag);
-      range.insertNode(span);
-      sel.removeAllRanges();
-    }
-    fontDown.addEventListener("click", () => { curSize = Math.max(12, curSize - 2); wrapSel("font-size:" + curSize + "px"); });
-    fontUp.addEventListener("click", () => { curSize = Math.min(28, curSize + 2); wrapSel("font-size:" + curSize + "px"); });
-    fontColor.addEventListener("input", () => { wrapSel("color:" + fontColor.value); });
-  }
-}
+    fontDown.addEventListener("click", () => {
+      state.noteFontSize = Math.max(12, state.noteFontSize - 2);
+      const b = document.getElementById("body");
+      const p = document.getElementById("mdPreview");
+      if (b) b.style.fontSize = state.noteFontSize + "px";
+      if (p) p.style.fontSize = state.noteFontSize + "px";
+    });
+    fontUp.addEventListener("click", () => {
+      state.noteFontSize = Math.min(28, state.noteFontSize + 2);
+      const b = document.getElementById("body");
+      const p = document.getElementById("mdPreview");
+      if (b) b.style.fontSize = state.noteFontSize + "px";
+      if (p) p.style.fontSize = state.noteFontSize + "px";
+    });
+    fontColor.addEventListener("input", () => {
+      state.noteTextColor = fontColor.value;
+      const b = document.getElementById("body");
+      const p = document.getElementById("mdPreview");
+      if (b) b.style.color = fontColor.value;
+      if (p) p.style.color = fontColor.value;
+    });
+  }}
 
 function selectedNote() {
   if (state.showTrash) {
