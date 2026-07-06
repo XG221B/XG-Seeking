@@ -177,6 +177,7 @@ const state = {
   showTrash: false,
   trashNotes: [],
   settings: { language: "zh", title: t("appTitle") },
+  sourceMode: true,
   previewMode: false,
   noteFontSize: 17,
   noteTextColor: "#20251f",
@@ -474,10 +475,9 @@ function renderEditor(note) {
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (state.previewMode
       ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<br\s*\/?>/gi, "\n").replace(/<\/div>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, ""))}</div>`
-      : `<div class="body" id="body" contenteditable="true" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${note.body.replace(/\n/g, "<br>")}</div>`) +
+      : `<textarea class="body" id="body" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
-      <button class="toolbar-btn" id="fontDown" title="${t("fontSizeDown")}">A-</button>
-      <button class="toolbar-btn" id="fontUp" title="${t("fontSizeUp")}">A+</button>
+      <select class="toolbar-select" id="fontSize" title="${t("fontSizeUp")}"><option value="10">10px</option><option value="12" selected>12px</option><option value="14">14px</option><option value="16">16px</option><option value="18">18px</option><option value="20">20px</option><option value="24">24px</option><option value="28">28px</option><option value="32">32px</option></select>
       <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#20251f">
       <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "◎"}</button>
     </div>` +
@@ -569,7 +569,7 @@ function bindNotesEvents() {
         const note = selectedNote();
         if (note && titleEl) note.title = titleEl.value || t("untitled");
         if (note && bodyEl) note.body = bodyEl.value;
-        state.previewMode = !state.previewMode;
+        state.sourceMode = !state.sourceMode;
         renderNotes();
       });
     }
@@ -587,32 +587,18 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-    // Font size/color toolbar — discrete sizes + execCommand color
-  const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32];
-  let curFontIdx = 4;
-  const fontDown = document.getElementById("fontDown");
-  const fontUp = document.getElementById("fontUp");
-  const fontColor = document.getElementById("fontColor");
-  if (fontDown && fontUp && fontColor) {
-    function applyFontSize(px) {
-      const b = document.getElementById("body");
-      if (!b) return;
-      b.focus();
-      const sel = window.getSelection();
-      if (!sel.rangeCount || sel.isCollapsed) return;
-      const range = sel.getRangeAt(0);
-      const text = range.toString();
-      if (!text) return;
-      range.deleteContents();
-      const span = document.createElement("span");
-      span.style.fontSize = px + "px";
-      span.textContent = text;
-      range.insertNode(span);
-      sel.removeAllRanges();
-    }
-    fontDown.addEventListener("click", () => { curFontIdx = Math.max(0, curFontIdx - 1); applyFontSize(FONT_SIZES[curFontIdx]); });
-    fontUp.addEventListener("click", () => { curFontIdx = Math.min(FONT_SIZES.length - 1, curFontIdx + 1); applyFontSize(FONT_SIZES[curFontIdx]); });
-    fontColor.addEventListener("input", () => { const b = document.getElementById("body"); if (b) b.focus(); document.execCommand("styleWithCSS", false, true); document.execCommand("foreColor", false, fontColor.value); });
+    // Font size/color — dropdown + color
+  const fs=document.getElementById("fontSize");
+  const fc=document.getElementById("fontColor");
+  if(fs&&fc){
+    fs.addEventListener("change",()=>{
+      const px=parseInt(fs.value);const b=document.getElementById("body");if(!b)return;b.focus();
+      const sel=window.getSelection();if(!sel.rangeCount||sel.isCollapsed)return;
+      const r=sel.getRangeAt(0),t=r.toString();if(!t)return;r.deleteContents();
+      const s=document.createElement("span");s.style.fontSize=px+"px";s.textContent=t;r.insertNode(s);
+      sel.removeAllRanges();const nr=document.createRange();nr.selectNodeContents(s);sel.addRange(nr);
+    });
+    fc.addEventListener("input",()=>{const b=document.getElementById("body");if(b){b.focus();document.execCommand("styleWithCSS",false,true);document.execCommand("foreColor",false,fc.value)}});
   }
 }
 
@@ -631,7 +617,7 @@ function bindEditorAutoSave() {
 
   body.addEventListener("input", () => {
     const note = selectedNote();
-    if (note) note.body = body.innerHTML;
+    if (note) note.body = body.value;
     scheduleAutoSave();
   });
 }
