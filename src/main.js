@@ -477,6 +477,9 @@ function renderEditor(note) {
       ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
       : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
+      <button class="toolbar-btn" id="fontDown" title="缩小字号">A-</button>
+      <button class="toolbar-btn" id="fontUp" title="放大字号">A+</button>
+      <input type="color" class="toolbar-color" id="fontColor" title="文字颜色" value="#20251f">
       <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "◎"}</button>
     </div>` +
   `</div>`;
