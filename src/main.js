@@ -477,7 +477,7 @@ function renderEditor(note) {
       ? `<div class="md-preview" id="mdPreview">${renderMd(note.body)}</div>`
       : `<textarea class="body" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar">
-      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "👁"}</button>
+      <button class="toolbar-btn ${state.previewMode ? "active" : ""}" id="togglePreview" title="${state.previewMode ? t("editToggle") : t("previewToggle")}">${state.previewMode ? "✎" : "◎"}</button>
     </div>` +
   `</div>`;
 }
