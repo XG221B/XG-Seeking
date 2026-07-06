@@ -20,7 +20,7 @@ const STRINGS = {
     mindmapDeleteNode: "删除节点",
     mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
-    mindmapEmptyHint: "Tab 或右键 — 添加第一个节点",
+    mindmapEmptyHint: "Tab 添加第一个节点",
     editToggle: "编辑",
     previewToggle: "预览",
     settings: "设置",
@@ -78,7 +78,7 @@ const STRINGS = {
     mindmapDeleteNode: "Delete node",
     mindmapShortcuts: "Tab child · Enter sibling · Delete remove",
     mindmapEditHint: "Ctrl+Enter to confirm edit",
-    mindmapEmptyHint: "Tab or right-click — add first node",
+    mindmapEmptyHint: "Tab to add first node",
     editToggle: "Edit",
     previewToggle: "Preview",
     settings: "Settings",
@@ -965,8 +965,8 @@ function renderNode(node, depth = 0) {
         ? `<textarea class="mm-edit-input" data-node-id="${node.id}" rows="1">${escapeHtml(node.text)}</textarea>`
         : `<span class="mm-text">${textContent}</span>`}
     </div>
-    ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}
-  </div>`;
+  </div>
+  ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}`;
 }
 
 function mindmapKeyHandler(e) {
