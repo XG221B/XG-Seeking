@@ -20,6 +20,7 @@ const STRINGS = {
     mindmapDeleteNode: "删除节点",
     mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
+    mindmapEmptyHint: "Tab 或右键 — 添加第一个节点",
     editToggle: "编辑",
     previewToggle: "预览",
     settings: "设置",
@@ -828,7 +829,7 @@ function renderMindmapCanvas(mm) {
       </div>
     </div>
     <div class="mm-tree" id="mmTree">
-      ${renderNodes(mm.nodes)}
+      ${mm.nodes.length ? renderNodes(mm.nodes) : `<div class="mm-empty-hint"><p>Tab 或右键 — 添加第一个节点</p></div>`}
     </div>
   </div>`;
 }
