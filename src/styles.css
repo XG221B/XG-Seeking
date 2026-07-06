@@ -288,11 +288,12 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 }
 
 .body {
-  width: 100%; min-height: 460px; resize: none;
+  width: 100%; min-height: 460px; outline: none;
   padding: 10px 46px 46px;
-  border: 0; outline: 0; background: transparent;
+  border: 0; background: transparent;
   color: var(--color-editor-text);
   font-size: 17px; line-height: 1.9;
+  overflow-y: auto;
 }
 
 .empty {
@@ -353,12 +354,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 
 .toolbar-color::-webkit-color-swatch-wrapper { padding: 0; }
 .toolbar-color::-webkit-color-swatch { border: none; border-radius: 3px; }
-
-/* ── Mindmap tier fonts ── */
-
-.mm-text-lg { font-size: 18px; font-weight: 600; }
-.mm-text-md { font-size: 15px; font-weight: 400; }
-.mm-text-sm { font-size: 14px; font-weight: 400; }
 
 /* ── Trash ── */
 
@@ -480,7 +475,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 
 .mm-toggle-spacer { width: 20px; flex-shrink: 0; }
 
-.mm-text { color: var(--color-text); font-size: 15px; line-height: 1.5; }
+.mm-text { color: var(--color-text); font-size: 15px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 .mm-bullet {
   color: var(--color-text-dim);
@@ -491,7 +486,9 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
   user-select: none;
 }
 
-.mm-text { color: var(--color-text); font-size: 15px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mm-text.mm-text-lg { font-size: 18px; font-weight: 600; }
+.mm-text.mm-text-md { font-size: 15px; font-weight: 400; }
+.mm-text.mm-text-sm { font-size: 14px; font-weight: 400; }
 
 .mm-edit-input {
   flex: 1; min-width: 0; padding: 3px 8px;
