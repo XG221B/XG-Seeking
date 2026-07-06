@@ -473,7 +473,7 @@ function renderEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (state.previewMode
-      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<[^>]+>/g, ""))}</div>`
+      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<br\s*\/?>/gi, "\n").replace(/<\/div>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, ""))}</div>`
       : `<div class="body" id="body" contenteditable="true" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${note.body.replace(/\n/g, "<br>")}</div>`) +
     `<div class="editor-toolbar">
       <button class="toolbar-btn" id="fontDown" title="${t("fontSizeDown")}">A-</button>
