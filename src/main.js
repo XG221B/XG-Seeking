@@ -178,15 +178,9 @@ const state = {
   trashNotes: [],
   settings: { language: "zh", title: t("appTitle") },
   previewMode: false,
-  mindmaps: [],
-  selectedMindmapId: "",
-  selectedNodeId: "",
-  showMindmapTrash: false,
-  mindmapQuery: "",
-  mindmapTrash: [],
-  editingNode: false,
+  noteFontSize: 17,
+  noteTextColor: "#20251f",
 };
-
 let autoSaveTimer = 0;
 
 // ── Markdown preview ──
@@ -570,6 +564,12 @@ function bindNotesEvents() {
     const togglePreview = document.getElementById("togglePreview");
     if (togglePreview) {
       togglePreview.addEventListener("click", () => {
+        // Sync editor content before preview
+        const titleEl = document.getElementById("title");
+        const bodyEl = document.getElementById("body");
+        const note = selectedNote();
+        if (note && titleEl) note.title = titleEl.value || t("untitled");
+        if (note && bodyEl) note.body = bodyEl.value;
         state.previewMode = !state.previewMode;
         renderNotes();
       });
