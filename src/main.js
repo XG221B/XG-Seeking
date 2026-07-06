@@ -180,8 +180,7 @@ const state = {
   previewMode: false,
   noteFontSize: 17,
   noteTextColor: "#20251f",
-};
-let autoSaveTimer = 0;
+};let autoSaveTimer = 0;
 
 // ── Markdown preview ──
 
@@ -474,8 +473,8 @@ function renderEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (state.previewMode
-      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body)}</div>`
-      : `<textarea class="body" id="body" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
+      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<[^>]+>/g, ""))}</div>`
+      : `<div class="body" id="body" contenteditable="true" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${note.body.replace(/\n/g, "<br>")}</div>`) +
     `<div class="editor-toolbar">
       <button class="toolbar-btn" id="fontDown" title="${t("fontSizeDown")}">A-</button>
       <button class="toolbar-btn" id="fontUp" title="${t("fontSizeUp")}">A+</button>
@@ -588,39 +587,30 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-  // Font size/color toolbar
+    // Font size/color toolbar — execCommand on selection
   const fontDown = document.getElementById("fontDown");
   const fontUp = document.getElementById("fontUp");
   const fontColor = document.getElementById("fontColor");
   if (fontDown && fontUp && fontColor) {
     fontDown.addEventListener("click", () => {
-      state.noteFontSize = Math.max(12, state.noteFontSize - 2);
       const b = document.getElementById("body");
-      const p = document.getElementById("mdPreview");
-      if (b) b.style.fontSize = state.noteFontSize + "px";
-      if (p) p.style.fontSize = state.noteFontSize + "px";
+      if (b) b.focus();
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("fontSize", false, "2");  // smaller
     });
     fontUp.addEventListener("click", () => {
-      state.noteFontSize = Math.min(28, state.noteFontSize + 2);
       const b = document.getElementById("body");
-      const p = document.getElementById("mdPreview");
-      if (b) b.style.fontSize = state.noteFontSize + "px";
-      if (p) p.style.fontSize = state.noteFontSize + "px";
+      if (b) b.focus();
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("fontSize", false, "5");  // larger
     });
     fontColor.addEventListener("input", () => {
-      state.noteTextColor = fontColor.value;
       const b = document.getElementById("body");
-      const p = document.getElementById("mdPreview");
-      if (b) b.style.color = fontColor.value;
-      if (p) p.style.color = fontColor.value;
+      if (b) b.focus();
+      document.execCommand("styleWithCSS", false, true);
+      document.execCommand("foreColor", false, fontColor.value);
     });
-  }}
-
-function selectedNote() {
-  if (state.showTrash) {
-    return state.trashNotes.find((note) => note.id === state.selectedId);
   }
-  return state.notes.find((note) => note.id === state.selectedId);
 }
 
 function bindEditorAutoSave() {
@@ -638,7 +628,7 @@ function bindEditorAutoSave() {
 
   body.addEventListener("input", () => {
     const note = selectedNote();
-    if (note) note.body = body.value;
+    if (note) note.body = body.innerHTML;
     scheduleAutoSave();
   });
 }
