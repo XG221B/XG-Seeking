@@ -581,6 +581,30 @@ function bindNotesEvents() {
 
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
+
+  // Font size/color toolbar
+  const fontDown = document.getElementById("fontDown");
+  const fontUp = document.getElementById("fontUp");
+  const fontColor = document.getElementById("fontColor");
+  if (fontDown && fontUp && fontColor) {
+    const bodyEl = document.getElementById("body");
+    const mdPreview = document.getElementById("mdPreview");
+    let fontSize = 17;
+    fontDown.addEventListener("click", () => {
+      fontSize = Math.max(12, fontSize - 2);
+      if (bodyEl) bodyEl.style.fontSize = fontSize + "px";
+      if (mdPreview) mdPreview.style.fontSize = fontSize + "px";
+    });
+    fontUp.addEventListener("click", () => {
+      fontSize = Math.min(28, fontSize + 2);
+      if (bodyEl) bodyEl.style.fontSize = fontSize + "px";
+      if (mdPreview) mdPreview.style.fontSize = fontSize + "px";
+    });
+    fontColor.addEventListener("input", () => {
+      if (bodyEl) bodyEl.style.color = fontColor.value;
+      if (mdPreview) mdPreview.style.color = fontColor.value;
+    });
+  }
 }
 
 function selectedNote() {
@@ -957,6 +981,7 @@ function renderNode(node, depth = 0) {
   const hasChildren = node.children.length > 0;
   const isEditing = state.editingNode && state.selectedNodeId === node.id;
   const bullet = BULLETS[depth % BULLETS.length];
+  const sizeClass = depth === 0 ? "mm-text-lg" : depth === 1 ? "mm-text-md" : "mm-text-sm";
   const textContent = escapeHtml(node.text).replace(/\n/g, "<br>");
   return `<div class="mm-node-wrapper" style="margin-left: ${depth * 24}px" data-node-id="${node.id}">
     <div class="mm-node ${state.selectedNodeId === node.id ? "selected" : ""}">
@@ -966,7 +991,7 @@ function renderNode(node, depth = 0) {
       <span class="mm-bullet">${bullet}</span>
       ${isEditing
         ? `<textarea class="mm-edit-input" data-node-id="${node.id}" rows="1">${escapeHtml(node.text)}</textarea>`
-        : `<span class="mm-text">${textContent}</span>`}
+        : `<span class="mm-text ${sizeClass}">${textContent}</span>`}
     </div>
   </div>
   ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}`;
