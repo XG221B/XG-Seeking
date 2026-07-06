@@ -588,28 +588,26 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-  // Font size/color toolbar
+  // Font size/color toolbar — wrap selection with span
   const fontDown = document.getElementById("fontDown");
   const fontUp = document.getElementById("fontUp");
   const fontColor = document.getElementById("fontColor");
   if (fontDown && fontUp && fontColor) {
-    const bodyEl = document.getElementById("body");
-    const mdPreview = document.getElementById("mdPreview");
-    let fontSize = 17;
-    fontDown.addEventListener("click", () => {
-      fontSize = Math.max(12, fontSize - 2);
-      if (bodyEl) bodyEl.style.fontSize = fontSize + "px";
-      if (mdPreview) mdPreview.style.fontSize = fontSize + "px";
-    });
-    fontUp.addEventListener("click", () => {
-      fontSize = Math.min(28, fontSize + 2);
-      if (bodyEl) bodyEl.style.fontSize = fontSize + "px";
-      if (mdPreview) mdPreview.style.fontSize = fontSize + "px";
-    });
-    fontColor.addEventListener("input", () => {
-      if (bodyEl) bodyEl.style.color = fontColor.value;
-      if (mdPreview) mdPreview.style.color = fontColor.value;
-    });
+    let curSize = 17;
+    function wrapSel(style) {
+      const el = document.getElementById("body");
+      if (!el) return;
+      el.focus();
+      const sel = window.getSelection();
+      if (!sel.rangeCount || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const span = document.createElement("span");
+      span.setAttribute("style", style);
+      try { range.surroundContents(span); } catch(e) {}
+    }
+    fontDown.addEventListener("click", () => { curSize = Math.max(12, curSize - 2); wrapSel("font-size:" + curSize + "px"); });
+    fontUp.addEventListener("click", () => { curSize = Math.min(28, curSize + 2); wrapSel("font-size:" + curSize + "px"); });
+    fontColor.addEventListener("input", () => { wrapSel("color:" + fontColor.value); });
   }
 }
 
