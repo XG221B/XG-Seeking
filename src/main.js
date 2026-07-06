@@ -587,29 +587,32 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-    // Font size/color toolbar — execCommand on selection
+    // Font size/color toolbar — discrete sizes + execCommand color
+  const FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32];
+  let curFontIdx = 4;
   const fontDown = document.getElementById("fontDown");
   const fontUp = document.getElementById("fontUp");
   const fontColor = document.getElementById("fontColor");
   if (fontDown && fontUp && fontColor) {
-    fontDown.addEventListener("click", () => {
+    function applyFontSize(px) {
       const b = document.getElementById("body");
-      if (b) b.focus();
-      document.execCommand("styleWithCSS", false, true);
-      document.execCommand("fontSize", false, "2");  // smaller
-    });
-    fontUp.addEventListener("click", () => {
-      const b = document.getElementById("body");
-      if (b) b.focus();
-      document.execCommand("styleWithCSS", false, true);
-      document.execCommand("fontSize", false, "5");  // larger
-    });
-    fontColor.addEventListener("input", () => {
-      const b = document.getElementById("body");
-      if (b) b.focus();
-      document.execCommand("styleWithCSS", false, true);
-      document.execCommand("foreColor", false, fontColor.value);
-    });
+      if (!b) return;
+      b.focus();
+      const sel = window.getSelection();
+      if (!sel.rangeCount || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const text = range.toString();
+      if (!text) return;
+      range.deleteContents();
+      const span = document.createElement("span");
+      span.style.fontSize = px + "px";
+      span.textContent = text;
+      range.insertNode(span);
+      sel.removeAllRanges();
+    }
+    fontDown.addEventListener("click", () => { curFontIdx = Math.max(0, curFontIdx - 1); applyFontSize(FONT_SIZES[curFontIdx]); });
+    fontUp.addEventListener("click", () => { curFontIdx = Math.min(FONT_SIZES.length - 1, curFontIdx + 1); applyFontSize(FONT_SIZES[curFontIdx]); });
+    fontColor.addEventListener("input", () => { const b = document.getElementById("body"); if (b) b.focus(); document.execCommand("styleWithCSS", false, true); document.execCommand("foreColor", false, fontColor.value); });
   }
 }
 
