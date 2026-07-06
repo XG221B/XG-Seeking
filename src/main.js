@@ -601,9 +601,12 @@ function bindNotesEvents() {
       const sel = window.getSelection();
       if (!sel.rangeCount || sel.isCollapsed) return;
       const range = sel.getRangeAt(0);
+      const frag = range.extractContents();
       const span = document.createElement("span");
       span.setAttribute("style", style);
-      try { range.surroundContents(span); } catch(e) {}
+      span.appendChild(frag);
+      range.insertNode(span);
+      sel.removeAllRanges();
     }
     fontDown.addEventListener("click", () => { curSize = Math.max(12, curSize - 2); wrapSel("font-size:" + curSize + "px"); });
     fontUp.addEventListener("click", () => { curSize = Math.min(28, curSize + 2); wrapSel("font-size:" + curSize + "px"); });
