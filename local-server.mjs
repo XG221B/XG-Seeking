@@ -128,28 +128,37 @@ function mindmapTrashPath(id) {
 
 async function listMindmaps() {
   const files = await readdir(mindmapsDir).catch(() => []);
-  const maps = await Promise.all(
-    files
-      .filter((f) => extname(f) === ".json")
-      .map(async (f) => {
-        const raw = await readFile(join(mindmapsDir, f), "utf8");
-        return JSON.parse(raw);
-      }),
-  );
+  const maps = (
+    await Promise.all(
+      files
+        .filter((f) => extname(f) === ".json")
+        .map((f) => readMindmapFile(join(mindmapsDir, f))),
+    )
+  ).filter(Boolean);
   return maps.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 async function listMindmapTrash() {
   const files = await readdir(mindmapsTrashDir).catch(() => []);
-  const maps = await Promise.all(
-    files
-      .filter((f) => extname(f) === ".json")
-      .map(async (f) => {
-        const raw = await readFile(join(mindmapsTrashDir, f), "utf8");
-        return JSON.parse(raw);
-      }),
-  );
+  const maps = (
+    await Promise.all(
+      files
+        .filter((f) => extname(f) === ".json")
+        .map((f) => readMindmapFile(join(mindmapsTrashDir, f))),
+    )
+  ).filter(Boolean);
   return maps.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+async function readMindmapFile(file) {
+  try {
+    const raw = await readFile(file, "utf8");
+    const map = JSON.parse(raw);
+    validateMindmap(map);
+    return map;
+  } catch {
+    return null;
+  }
 }
 
 const MAX_BODY = 1_048_576; // 1 MB
@@ -170,6 +179,23 @@ async function readJson(request) {
 function validateNoteContent(title, body) {
   if (title && title.length > MAX_TITLE_LEN) throw new Error(`Title too long (max ${MAX_TITLE_LEN})`);
   if (body && body.length > MAX_BODY_LEN) throw new Error(`Body too long (max ${MAX_BODY_LEN})`);
+}
+
+function validateMindmapNode(node) {
+  if (!node || typeof node !== "object") throw new Error("Invalid mindmap node");
+  ensureId(node.id);
+  if (typeof node.text !== "string") throw new Error("Invalid mindmap node text");
+  if (typeof node.collapsed !== "boolean") node.collapsed = Boolean(node.collapsed);
+  if (!Array.isArray(node.children)) node.children = [];
+  node.children.forEach(validateMindmapNode);
+}
+
+function validateMindmap(map) {
+  if (!map || typeof map !== "object") throw new Error("Invalid mindmap");
+  ensureId(map.id);
+  if (typeof map.title !== "string") throw new Error("Invalid mindmap title");
+  if (!Array.isArray(map.nodes)) map.nodes = [];
+  map.nodes.forEach(validateMindmapNode);
 }
 
 function sendJson(response, value) {
@@ -254,6 +280,7 @@ async function handleApi(request, response) {
 
   if (command === "save_mindmap") {
     const data = body.mm || body; // accept both {mm:{...}} (Tauri) and flat (web)
+    validateMindmap(data);
     const mm = { ...data, updatedAt: nowMillis() };
     await writeFile(mindmapPath(data.id), JSON.stringify(mm), "utf8");
     return sendJson(response, mm);

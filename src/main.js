@@ -21,9 +21,6 @@ const STRINGS = {
     mindmapShortcuts: "Tab 添加子节点 · Enter 添加同级节点 · Delete 删除节点",
     mindmapEditHint: "Ctrl+Enter 确认编辑",
     mindmapEmptyHint: "Tab 添加第一个节点",
-    fontSizeUp: "放大字号",
-    fontSizeDown: "缩小字号",
-    fontColor: "文字颜色",
     editToggle: "编辑",
     previewToggle: "预览",
     settings: "设置",
@@ -82,9 +79,6 @@ const STRINGS = {
     mindmapShortcuts: "Tab child · Enter sibling · Delete remove",
     mindmapEditHint: "Ctrl+Enter to confirm edit",
     mindmapEmptyHint: "Tab to add first node",
-    fontSizeUp: "Increase font",
-    fontSizeDown: "Decrease font",
-    fontColor: "Text color",
     editToggle: "Edit",
     previewToggle: "Preview",
     settings: "Settings",
@@ -177,36 +171,92 @@ const state = {
   showTrash: false,
   trashNotes: [],
   settings: { language: "zh", title: t("appTitle") },
-  sourceMode: true,
-  previewMode: false,
-  noteFontSize: 17,
-  noteTextColor: "#20251f",
-};let autoSaveTimer = 0;
+  sourceMode: false,
+  mindmaps: [],
+  selectedMindmapId: "",
+  selectedNodeId: "",
+  showMindmapTrash: false,
+  mindmapQuery: "",
+  mindmapTrash: [],
+  editingNode: false,
+};
+
+let autoSaveTimer = 0;
+let pageLoadToken = 0;
+const pendingNoteSaves = new Map();
 
 // ── Markdown preview ──
 
 function renderMd(text) {
-  let html = escapeHtml(text);
-  // Headings
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Bold / italic
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Unordered lists
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-  // Paragraphs (double newline)
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
-  // Clean empty paragraphs
-  html = html.replace(/<p><\/p>/g, '');
-  return html;
+  const inlineMd = (value) => escapeHtml(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  const output = [];
+  let paragraph = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    output.push(`<p>${paragraph.map(inlineMd).join("<br>")}</p>`);
+    paragraph = [];
+  };
+
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      const level = heading[1].length;
+      output.push(`<h${level}>${inlineMd(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    if (/^-\s+/.test(trimmed)) {
+      flushParagraph();
+      const items = [];
+      while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
+        items.push(`<li>${inlineMd(lines[i].trim().replace(/^-\s+/, ""))}</li>`);
+        i += 1;
+      }
+      i -= 1;
+      output.push(`<ul>${items.join("")}</ul>`);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  return output.join("");
+}
+
+function bodyToPreviewHtml(value) {
+  return renderMd(value);
+}
+
+function editorValueToBody(value) {
+  return String(value || "").replace(/\r\n/g, "\n");
+}
+
+function isEditorTarget(target) {
+  return Boolean(target?.closest?.("#body"));
+}
+
+function syncEditorToNote() {
+  const body = document.getElementById("body");
+  const note = selectedNote();
+  if (!body || !note) return;
+  note.body = editorValueToBody(body.value);
 }
 
 // ── Helpers ──
@@ -258,19 +308,30 @@ function updateNavLabels() {
 // ── Page routing ──
 
 async function setPage(page) {
-  // Save current mindmap before switching away (don't block on failure)
+  const token = ++pageLoadToken;
+  const previousPage = state.page;
+  if (state.page === "notes" && !state.showTrash) {
+    clearTimeout(autoSaveTimer);
+    syncEditorToNote();
+    saveNote();
+  }
+
   if (state.page === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
-    if (mm) { clearTimeout(mindmapSaveTimer); try { await saveMindmap(mm); } catch {} }
+    if (mm) {
+      clearTimeout(mindmapSaveTimer);
+      saveMindmap(mm);
+    }
   }
   state.page = page;
   state.showTrash = false;
+  if (page === "notes" && previousPage !== "notes") state.sourceMode = false;
   if (page !== "notes") state.query = "";
   if (page !== "mindmaps") state.mindmapQuery = "";
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === page));
   render();
-  if (page === "notes") loadNotes();
-  if (page === "mindmaps") loadMindmaps();
+  if (page === "notes") loadNotes(token);
+  if (page === "mindmaps") loadMindmaps(token);
 }
 
 function renderPlaceholder(page) {
@@ -351,6 +412,16 @@ function filteredNotes() {
     : source;
 }
 
+function selectedNote() {
+  const source = state.showTrash ? state.trashNotes : state.notes;
+  return source.find((note) => note.id === state.selectedId) || null;
+}
+
+function selectNote(id, options = {}) {
+  state.selectedId = id || "";
+  state.sourceMode = Boolean(options.edit);
+}
+
 function noteListHtml() {
   const keyword = state.query.trim().toLowerCase();
   const list = filteredNotes();
@@ -395,7 +466,7 @@ function updateSearchFeedback(prefix) {
 function bindListEvents() {
   Array.from(document.querySelectorAll(".item")).forEach((button) => {
     button.addEventListener("click", () => {
-      state.selectedId = button.dataset.id;
+      selectNote(button.dataset.id);
       renderNotes();
     });
   });
@@ -453,7 +524,7 @@ function renderNotes() {
 
   const editorHtml = state.showTrash
     ? (selected ? renderTrashEditor(selected) : renderTrashEmpty())
-    : (selected ? renderEditor(selected) : renderEmpty());
+    : (selected ? renderRichEditor(selected) : renderEmpty());
 
   app.innerHTML =
     `<section class="notes">` +
@@ -467,19 +538,18 @@ function renderNotes() {
 
   bindNotesEvents();
 
-  if (!state.showTrash) loadTrashSilent();
+  if (!state.showTrash) loadTrashSilent(pageLoadToken);
 }
 
-function renderEditor(note) {
+function renderRichEditor(note) {
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (!state.sourceMode
-      ? `<div class="md-preview" id="mdPreview" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}">${renderMd(note.body.replace(/<br\s*\/?>/gi, "\n").replace(/<\/div>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, ""))}</div>`
-      : `<textarea class="body" id="body" style="font-size:${state.noteFontSize}px;color:${state.noteTextColor}" placeholder="${t("placeholderBody")}">>${escapeHtml(note.body)}</textarea>`) +
-    `<div class="editor-toolbar">
-      <select class="toolbar-select" id="fontSize" title="${t("fontSizeUp")}"><option value="10">10px</option><option value="12" selected>12px</option><option value="14">14px</option><option value="16">16px</option><option value="18">18px</option><option value="20">20px</option><option value="24">24px</option><option value="28">28px</option><option value="32">32px</option></select>
-      <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#20251f">
-      <button class="toolbar-btn ${!state.sourceMode ? "active" : ""}" id="togglePreview" title="${!state.sourceMode ? t("editToggle") : t("previewToggle")}">${!state.sourceMode ? "✎" : "◎"}</button>
+      ? `<div class="md-preview" id="mdPreview">${bodyToPreviewHtml(note.body)}</div>`
+      : `<textarea class="body markdown-source" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
+    `<div class="editor-toolbar mode-toolbar" aria-label="Editor mode">
+      <button class="toolbar-btn mode-btn ${state.sourceMode ? "active" : ""}" id="editMode" title="${t("editToggle")}">Edit</button>
+      <button class="toolbar-btn mode-btn ${!state.sourceMode ? "active" : ""}" id="previewMode" title="${t("previewToggle")}">Preview</button>
     </div>` +
   `</div>`;
 }
@@ -560,19 +630,8 @@ function bindNotesEvents() {
     const createButtons = [document.getElementById("new"), document.getElementById("emptyNew")].filter(Boolean);
     createButtons.forEach((button) => button.addEventListener("click", createNote));
 
-    const togglePreview = document.getElementById("togglePreview");
-    if (togglePreview) {
-      togglePreview.addEventListener("click", () => {
-        // Sync editor content before preview
-        const titleEl = document.getElementById("title");
-        const bodyEl = document.getElementById("body");
-        const note = selectedNote();
-        if (note && titleEl) note.title = titleEl.value || t("untitled");
-        if (note && bodyEl) note.body = bodyEl.value;
-        state.sourceMode = !state.sourceMode;
-        renderNotes();
-      });
-    }
+    document.getElementById("editMode")?.addEventListener("click", () => switchNoteMode(true));
+    document.getElementById("previewMode")?.addEventListener("click", () => switchNoteMode(false));
   } else {
     const restoreBtn = document.getElementById("restoreBtn");
     if (restoreBtn) {
@@ -587,32 +646,23 @@ function bindNotesEvents() {
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
 
-    // Font size/color — global styling on source/preview
-  const fs = document.getElementById("fontSize");
-  const fc = document.getElementById("fontColor");
-  if (fs && fc) {
-    fs.addEventListener("change", () => {
-      state.noteFontSize = parseInt(fs.value);
-      const b = document.getElementById("body");
-      const p = document.getElementById("mdPreview");
-      if (b) b.style.fontSize = fs.value + "px";
-      if (p) p.style.fontSize = fs.value + "px";
-    });
-    fc.addEventListener("input", () => {
-      state.noteTextColor = fc.value;
-      const b = document.getElementById("body");
-      const p = document.getElementById("mdPreview");
-      if (b) b.style.color = fc.value;
-      if (p) p.style.color = fc.value;
-    });
-  }
+}
 
+function switchNoteMode(sourceMode) {
+  const titleEl = document.getElementById("title");
+  const bodyEl = document.getElementById("body");
+  const note = selectedNote();
+  if (note && titleEl) note.title = titleEl.value || t("untitled");
+  if (note && bodyEl) note.body = editorValueToBody(bodyEl.value);
+  state.sourceMode = sourceMode;
+  renderNotes();
+  scheduleAutoSave();
 }
 
 function bindEditorAutoSave() {
   const title = document.getElementById("title");
   const body = document.getElementById("body");
-  if (!title || !body) return;
+  if (!title) return;
 
   title.addEventListener("input", () => {
     const note = selectedNote();
@@ -622,11 +672,13 @@ function bindEditorAutoSave() {
     scheduleAutoSave();
   });
 
-  body.addEventListener("input", () => {
-    const note = selectedNote();
-    if (note) note.body = body.value;
-    scheduleAutoSave();
-  });
+  if (body) {
+    body.addEventListener("input", () => {
+      const note = selectedNote();
+      if (note) note.body = editorValueToBody(body.value);
+      scheduleAutoSave();
+    });
+  }
 }
 
 // ── API calls ──
@@ -642,33 +694,46 @@ async function loadSettings() {
   }
 }
 
-async function loadNotes() {
+async function loadNotes(token = pageLoadToken) {
   try {
-    state.notes = await invoke("list_notes");
-    if (!state.selectedId && state.notes[0]) state.selectedId = state.notes[0].id;
+    const notes = await invoke("list_notes");
+    if (token !== pageLoadToken || state.page !== "notes") return;
+
+    state.notes = notes;
+    if (!state.selectedId && state.notes[0]) selectNote(state.notes[0].id);
     state.showTrash = false;
-    await loadTrashSilent();
+    await loadTrashSilent(token);
+    if (token !== pageLoadToken || state.page !== "notes") return;
     renderNotes();
   } catch (error) {
+    if (token !== pageLoadToken || state.page !== "notes") return;
     app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadFailed")}</h1><div class="quiet">${escapeHtml(error)}</div></div></section>`;
   }
 }
 
 async function loadTrash() {
   try {
-    state.trashNotes = await invoke("list_trash");
+    const token = pageLoadToken;
+    const trashNotes = await invoke("list_trash");
+    if (token !== pageLoadToken || state.page !== "notes") return;
+
+    state.trashNotes = trashNotes;
     state.showTrash = true;
-    state.selectedId = state.trashNotes[0] ? state.trashNotes[0].id : "";
+    selectNote(state.trashNotes[0] ? state.trashNotes[0].id : "");
     state.query = "";
     renderNotes();
   } catch (error) {
+    if (state.page !== "notes") return;
     app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadTrashFailed")}</h1><div class="quiet">${escapeHtml(error)}</div></div></section>`;
   }
 }
 
-async function loadTrashSilent() {
+async function loadTrashSilent(token = pageLoadToken) {
   try {
-    state.trashNotes = await invoke("list_trash");
+    const trashNotes = await invoke("list_trash");
+    if (token !== pageLoadToken || state.page !== "notes") return;
+
+    state.trashNotes = trashNotes;
     updateTrashBar();
   } catch {
     // Silently ignore
@@ -688,7 +753,7 @@ function updateTrashBar() {
 async function toggleTrashView() {
   if (state.showTrash) {
     state.showTrash = false;
-    state.selectedId = state.notes[0] ? state.notes[0].id : "";
+    selectNote(state.notes[0] ? state.notes[0].id : "");
     state.query = "";
     renderNotes();
   } else {
@@ -702,7 +767,7 @@ async function createNote() {
     note.title = t("untitled");
     await invoke("save_note", note);
     state.notes.unshift(note);
-    state.selectedId = note.id;
+    selectNote(note.id, { edit: true });
     renderNotes();
   } catch (error) {
     alert(`${t("loadFailed")}: ${error}`);
@@ -714,20 +779,42 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(saveNote, 500);
 }
 
+function trackNoteSave(id, promise) {
+  if (!pendingNoteSaves.has(id)) pendingNoteSaves.set(id, new Set());
+  const saves = pendingNoteSaves.get(id);
+  saves.add(promise);
+  const cleanup = () => {
+    saves.delete(promise);
+    if (saves.size === 0) pendingNoteSaves.delete(id);
+  };
+  promise.then(cleanup, cleanup);
+}
+
+async function waitForNoteSaves(id) {
+  const saves = pendingNoteSaves.get(id);
+  if (!saves || saves.size === 0) return;
+  await Promise.allSettled(Array.from(saves));
+}
+
 async function saveNote() {
   if (!state.selectedId || state.showTrash) return;
   const titleField = document.getElementById("title");
   const bodyField = document.getElementById("body");
-  if (!titleField || !bodyField) return;
+  if (!titleField) return;
+  const currentNote = selectedNote();
 
   const id = state.selectedId;
+  const payload = {
+    id,
+    title: titleField.value,
+    body: bodyField ? editorValueToBody(bodyField.value) : currentNote?.body || "",
+  };
+
   let saved;
+  const request = invoke("save_note", payload);
+  trackNoteSave(id, request);
   try {
-    saved = await invoke("save_note", {
-      id,
-      title: titleField.value,
-      body: bodyField.value,
-    });
+    saved = await request;
   } catch {
     return;
   }
@@ -748,10 +835,11 @@ async function saveNote() {
 async function trashNote(id) {
   if (!id) return;
   clearTimeout(autoSaveTimer);
+  await waitForNoteSaves(id);
 
   try { await invoke("delete_note", { id }); } catch (e) { alert(e); return; }
   state.notes = state.notes.filter((note) => note.id !== id);
-  if (state.selectedId === id) state.selectedId = state.notes[0] ? state.notes[0].id : "";
+  if (state.selectedId === id) selectNote(state.notes[0] ? state.notes[0].id : "");
   renderNotes();
 }
 
@@ -763,7 +851,7 @@ async function restoreNote(id) {
 
   if (state.trashNotes.length === 0 || state.selectedId === id) {
     state.showTrash = false;
-    state.selectedId = restored.id;
+    selectNote(restored.id);
     state.query = "";
   }
   renderNotes();
@@ -775,9 +863,9 @@ async function deletePermanently(id) {
   state.trashNotes = state.trashNotes.filter((n) => n.id !== id);
   if (state.trashNotes.length === 0) {
     state.showTrash = false;
-    state.selectedId = state.notes[0] ? state.notes[0].id : "";
+    selectNote(state.notes[0] ? state.notes[0].id : "");
   } else if (state.selectedId === id) {
-    state.selectedId = state.trashNotes[0].id;
+    selectNote(state.trashNotes[0].id);
   }
   renderNotes();
 }
@@ -790,7 +878,7 @@ async function clearAllTrash() {
   }
   state.trashNotes = [];
   state.showTrash = false;
-  state.selectedId = state.notes[0] ? state.notes[0].id : "";
+  selectNote(state.notes[0] ? state.notes[0].id : "");
   renderNotes();
 }
 
@@ -970,12 +1058,9 @@ function renderNodes(nodes, depth = 0) {
   return nodes.map((node) => renderNode(node, depth)).join("");
 }
 
-const BULLETS = ["•", "◦", "▪", "▸"];
-
 function renderNode(node, depth = 0) {
   const hasChildren = node.children.length > 0;
   const isEditing = state.editingNode && state.selectedNodeId === node.id;
-  const bullet = BULLETS[depth % BULLETS.length];
   const sizeClass = depth === 0 ? "mm-text-lg" : depth === 1 ? "mm-text-md" : "mm-text-sm";
   const textContent = escapeHtml(node.text).replace(/\n/g, "<br>");
   return `<div class="mm-node-wrapper" style="margin-left: ${depth * 24}px" data-node-id="${node.id}">
@@ -983,7 +1068,6 @@ function renderNode(node, depth = 0) {
       ${hasChildren
         ? `<button class="mm-toggle" data-toggle="${node.id}">${node.collapsed ? "▸" : "▾"}</button>`
         : `<span class="mm-toggle-spacer"></span>`}
-      <span class="mm-bullet">${bullet}</span>
       ${isEditing
         ? `<textarea class="mm-edit-input" data-node-id="${node.id}" rows="1">${escapeHtml(node.text)}</textarea>`
         : `<span class="mm-text ${sizeClass}">${textContent}</span>`}
@@ -996,7 +1080,7 @@ function mindmapKeyHandler(e) {
   if (state.page !== "mindmaps" || state.showMindmapTrash) return;
   const mm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
   if (!mm) return;
-  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || isEditorTarget(e.target)) return;
   if (e.key === "Tab") { e.preventDefault(); addChildNode(mm); }
   if (e.key === "Enter") { e.preventDefault(); addSiblingNode(mm); }
   if (e.key === "Delete" && state.selectedNodeId) { e.preventDefault(); deleteNode(mm); }
@@ -1166,20 +1250,29 @@ function scheduleMindmapSave(mm) {
 
 // ── Mindmap API ──
 
-async function loadMindmaps() {
+async function loadMindmaps(token = pageLoadToken) {
   try {
-    state.mindmaps = await invoke("list_mindmaps");
+    const mindmaps = await invoke("list_mindmaps");
+    if (token !== pageLoadToken || state.page !== "mindmaps") return;
+
+    state.mindmaps = mindmaps;
     state.showMindmapTrash = false;
     if (!state.selectedMindmapId && state.mindmaps[0]) state.selectedMindmapId = state.mindmaps[0].id;
-    await loadMindmapTrashSilent();
+    await loadMindmapTrashSilent(token);
+    if (token !== pageLoadToken || state.page !== "mindmaps") return;
     renderMindmaps();
   } catch (e) {
+    if (token !== pageLoadToken || state.page !== "mindmaps") return;
     app.innerHTML = `<section class="placeholder"><div class="placeholder-inner"><h1>${t("loadFailed")}</h1><div class="quiet">${escapeHtml(e)}</div></div></section>`;
   }
 }
 
-async function loadMindmapTrashSilent() {
-  try { state.mindmapTrash = await invoke("list_mindmap_trash"); } catch {}
+async function loadMindmapTrashSilent(token = pageLoadToken) {
+  try {
+    const mindmapTrash = await invoke("list_mindmap_trash");
+    if (token !== pageLoadToken || state.page !== "mindmaps") return;
+    state.mindmapTrash = mindmapTrash;
+  } catch {}
 }
 
 async function createMindmap() {
@@ -1252,7 +1345,7 @@ navButtons.forEach((button) => {
 // Keyboard shortcuts (global)
 document.addEventListener("keydown", (event) => {
   // Ignore when typing in inputs
-  if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") return;
+  if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" || isEditorTarget(event.target)) return;
 
   if (event.ctrlKey && event.key === "n") {
     event.preventDefault();

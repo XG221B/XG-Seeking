@@ -68,20 +68,7 @@ fn now_millis() -> Result<u64, String> {
 // ── Public API ──
 
 pub fn list_mindmaps(app_data: &Path) -> Result<Vec<Mindmap>, String> {
-    let dir = mindmaps_dir(app_data);
-    let mut maps = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let mm: Mindmap = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-        maps.push(mm);
-    }
-    maps.sort_by_key(|b| Reverse(b.updated_at));
-    Ok(maps)
+    list_mindmaps_in(&mindmaps_dir(app_data))
 }
 
 pub fn create_mindmap(app_data: &Path) -> Result<Mindmap, String> {
@@ -123,15 +110,21 @@ pub fn list_trash(app_data: &Path) -> Result<Vec<Mindmap>, String> {
     if !dir.exists() {
         return Ok(vec![]);
     }
+    list_mindmaps_in(&dir)
+}
+
+fn list_mindmaps_in(dir: &Path) -> Result<Vec<Mindmap>, String> {
     let mut maps = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        if let Ok(mm) = serde_json::from_str::<Mindmap>(&raw) {
+        if let Ok(raw) = fs::read_to_string(&path) {
+            let Ok(mm) = serde_json::from_str::<Mindmap>(&raw) else {
+                continue;
+            };
             maps.push(mm);
         }
     }

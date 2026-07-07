@@ -266,7 +266,9 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 .restore-note, .mindmap-restore { font-size: 16px; }
 
 .note-row:hover .delete-note, .note-row:hover .restore-note,
-.mindmap-row:hover .mindmap-delete, .mindmap-row:hover .mindmap-restore { opacity: 1; pointer-events: auto; }
+.note-row.active .delete-note, .note-row.active .restore-note,
+.mindmap-row:hover .mindmap-delete, .mindmap-row:hover .mindmap-restore,
+.mindmap-row.active .mindmap-delete, .mindmap-row.active .mindmap-restore { opacity: 1; pointer-events: auto; }
 
 .delete-note:hover, .restore-note:hover,
 .mindmap-delete:hover, .mindmap-restore:hover { background: var(--color-surface-hover); color: var(--accent); }
@@ -276,6 +278,7 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
 .editor { min-width: 0; overflow: hidden; background: var(--color-surface); }
 
 .form {
+  position: relative;
   display: grid; grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
 }
@@ -294,6 +297,11 @@ h1 { margin: 14px 0 12px; font-size: 44px; line-height: 1.1; letter-spacing: 0; 
   color: var(--color-editor-text);
   font-size: 17px; line-height: 1.9;
   overflow-y: auto;
+}
+
+.markdown-source {
+  white-space: pre-wrap;
+  resize: none;
 }
 
 .empty {
@@ -335,6 +343,13 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
   display: flex; gap: 6px;
 }
 
+.mode-toolbar {
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
 .toolbar-btn {
   width: 34px; height: 34px;
   display: grid; place-items: center;
@@ -345,15 +360,17 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
   transition: background .14s ease, color .14s ease, border-color .14s ease;
 }
 
+.mode-btn {
+  width: auto;
+  min-width: 58px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+
 .toolbar-btn:hover, .toolbar-btn.active {
   border-color: var(--accent);
   color: var(--accent);
 }
-
-.toolbar-color { width: 28px; height: 28px; border: 1px solid var(--color-border); border-radius: 6px; padding: 2px; cursor: pointer; background: transparent; }
-
-.toolbar-color::-webkit-color-swatch-wrapper { padding: 0; }
-.toolbar-color::-webkit-color-swatch { border: none; border-radius: 3px; }
 
 /* ── Trash ── */
 
@@ -476,15 +493,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 .mm-toggle-spacer { width: 20px; flex-shrink: 0; }
 
 .mm-text { color: var(--color-text); font-size: 15px; line-height: 1.5; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-
-.mm-bullet {
-  color: var(--color-text-dim);
-  font-size: 13px;
-  flex-shrink: 0;
-  width: 16px;
-  text-align: center;
-  user-select: none;
-}
 
 .mm-text.mm-text-lg { font-size: 18px; font-weight: 600; }
 .mm-text.mm-text-md { font-size: 15px; font-weight: 400; }
