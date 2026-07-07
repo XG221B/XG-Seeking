@@ -22,7 +22,12 @@ const STRINGS = {
     mindmapEditHint: "Ctrl+Enter 确认编辑",
     mindmapEmptyHint: "Tab 添加第一个节点",
     editToggle: "编辑",
-    previewToggle: "预览",
+        previewToggle: "预览",
+    fontSizeUp: "放大字号",
+    fontSizeDown: "缩小字号",
+    fontColor: "文字颜色",
+    fontSizeSelect: "字号",
+    fontSelectHint: "选中文字后使用",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -81,6 +86,11 @@ const STRINGS = {
     mindmapEmptyHint: "Tab to add first node",
     editToggle: "Edit",
     previewToggle: "Preview",
+    fontSizeUp: "Increase font",
+    fontSizeDown: "Decrease font",
+    fontColor: "Text color",
+    fontSizeSelect: "Size",
+    fontSelectHint: "Select text first, then apply",
     settings: "Settings",
     comingSoon: "Coming soon",
     untitled: "Untitled",
@@ -241,7 +251,17 @@ function renderMd(text) {
 }
 
 function bodyToPreviewHtml(value) {
-  return renderMd(value);
+  const safe = String(value || "")
+    // 1. Escape everything
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    // 2. Whitelist safe spans: <span style="font-size:Npx"> or <span style="color:#xxx">
+    .replace(/&lt;span\s+style="(font-size:\d{2}px|color:#[0-9a-fA-F]{6})"&gt;/g, '<span style="$1">')
+    .replace(/&lt;\/span&gt;/g, "</span>");
+  // Validate: reject any remaining HTML tags
+  if (/<[a-z][^>]*>/i.test(safe.replace(/<\/?span[^>]*>/gi, ""))) {
+    return escapeHtml(value);
+  }
+  return renderMd(safe).replace(/&lt;/g, "&amp;lt;");
 }
 
 function editorValueToBody(value) {
@@ -548,6 +568,14 @@ function renderRichEditor(note) {
       ? `<div class="md-preview" id="mdPreview">${bodyToPreviewHtml(note.body)}</div>`
       : `<textarea class="body markdown-source" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar mode-toolbar" aria-label="Editor mode">
+      <select class="toolbar-select" id="fontSize" title="${t("fontSizeUp")}">
+        <option value="">${t("fontSizeSelect")}</option>
+        <option value="10">10px</option><option value="12">12px</option><option value="14">14px</option>
+        <option value="16">16px</option><option value="18">18px</option><option value="20">20px</option>
+        <option value="24">24px</option><option value="28">28px</option><option value="32">32px</option>
+      </select>
+      <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#c0392b">
+      <span class="toolbar-hint" id="formatHint">${t("fontSelectHint")}</span>
       <button class="toolbar-btn mode-btn ${state.sourceMode ? "active" : ""}" id="editMode" title="${t("editToggle")}">Edit</button>
       <button class="toolbar-btn mode-btn ${!state.sourceMode ? "active" : ""}" id="previewMode" title="${t("previewToggle")}">Preview</button>
     </div>` +
@@ -645,7 +673,49 @@ function bindNotesEvents() {
 
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
+  bindFormatTools();
 
+}
+
+function bindFormatTools() {
+  const fs = document.getElementById("fontSize");
+  const fc = document.getElementById("fontColor");
+  const hint = document.getElementById("formatHint");
+  if (!fs || !fc) return;
+
+  fs.addEventListener("change", () => {
+    const px = fs.value;
+    if (!px) return;
+    const body = document.getElementById("body");
+    if (!body || body.tagName !== "TEXTAREA") return;
+    const start = body.selectionStart;
+    const end = body.selectionEnd;
+    if (start === end) {
+      if (hint) hint.textContent = t("fontSelectHint");
+      fs.value = "";
+      return;
+    }
+    const text = body.value.substring(start, end);
+    const wrapped = `<span style="font-size:${px}px">${text}</span>`;
+    body.setRangeText(wrapped, start, end, "end");
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+    fs.value = "";
+  });
+
+  fc.addEventListener("input", () => {
+    const body = document.getElementById("body");
+    if (!body || body.tagName !== "TEXTAREA") return;
+    const start = body.selectionStart;
+    const end = body.selectionEnd;
+    if (start === end) {
+      if (hint) hint.textContent = t("fontSelectHint");
+      return;
+    }
+    const text = body.value.substring(start, end);
+    const wrapped = `<span style="color:${fc.value}">${text}</span>`;
+    body.setRangeText(wrapped, start, end, "end");
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 function switchNoteMode(sourceMode) {
