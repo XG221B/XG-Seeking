@@ -28,6 +28,6 @@ jobs:
           releaseBody: |
             XG221B is a lightweight local-first desktop notes app.
 
-            See CHANGELOG.md for details.
+            See docs/CHANGELOG.md for details.
           releaseDraft: true
           prerelease: false

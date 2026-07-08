@@ -65,18 +65,43 @@ fn now_millis() -> Result<u64, String> {
     u64::try_from(millis).map_err(|e| e.to_string())
 }
 
+const MAX_TITLE_LEN: usize = 500;
+
+fn validate_title(title: &str) -> Result<(), String> {
+    if title.len() > MAX_TITLE_LEN {
+        return Err(format!("Title too long (max {MAX_TITLE_LEN} chars)"));
+    }
+    Ok(())
+}
+
+fn resolve_title(title: Option<String>) -> Result<String, String> {
+    let normalized = title
+        .unwrap_or_else(|| "未命名导图".into())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let resolved = if normalized.is_empty() {
+        "未命名导图".into()
+    } else {
+        normalized
+    };
+    validate_title(&resolved)?;
+    Ok(resolved)
+}
+
 // ── Public API ──
 
 pub fn list_mindmaps(app_data: &Path) -> Result<Vec<Mindmap>, String> {
     list_mindmaps_in(&mindmaps_dir(app_data))
 }
 
-pub fn create_mindmap(app_data: &Path) -> Result<Mindmap, String> {
+pub fn create_mindmap(app_data: &Path, title: Option<String>) -> Result<Mindmap, String> {
     let id = format!("mindmap-{}", now_millis()?);
     let ts = now_millis()?;
+    let resolved = resolve_title(title)?;
     let mm = Mindmap {
         id: id.clone(),
-        title: "未命名导图".into(),
+        title: resolved,
         updated_at: ts,
         nodes: vec![],
     };
@@ -89,6 +114,7 @@ pub fn create_mindmap(app_data: &Path) -> Result<Mindmap, String> {
 pub fn save_mindmap(app_data: &Path, mm: Mindmap) -> Result<Mindmap, String> {
     let path = mindmap_path(app_data, &mm.id)?;
     let mut saved = mm;
+    validate_title(&saved.title)?;
     saved.updated_at = now_millis()?;
     let raw = serde_json::to_string(&saved).map_err(|e| e.to_string())?;
     fs::write(path, raw).map_err(|e| e.to_string())?;

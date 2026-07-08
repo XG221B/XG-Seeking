@@ -15,6 +15,8 @@ const mindmapsTrashDir = join(dataDir, "mindmaps_trash");
 const settingsFile = join(dataDir, "settings.json");
 
 const defaultSettings = { language: "zh", title: "寻找心灵的碎片..." };
+const DEFAULT_NOTE_TITLE = "未命名想法";
+const DEFAULT_MINDMAP_TITLE = "未命名导图";
 
 if (!existsSync(join(distDir, "index.html"))) {
   execFileSync("npm.cmd", ["run", "web:build"], { cwd: root, stdio: "ignore" });
@@ -51,16 +53,16 @@ function parseNote(id, markdown, updatedAt) {
   const first = lines[0] || "";
 
   if (first.startsWith("# ")) {
-    const title = first.slice(2).trim() || "未命名想法";
+    const title = first.slice(2).trim() || DEFAULT_NOTE_TITLE;
     const body = lines.slice(lines[1] === "" ? 2 : 1).join("\n");
     return { id, title, body, updatedAt };
   }
 
-  return { id, title: "未命名想法", body: normalized, updatedAt };
+  return { id, title: DEFAULT_NOTE_TITLE, body: normalized, updatedAt };
 }
 
 function serializeNote(title, body) {
-  const safeTitle = String(title || "").split(/\s+/).join(" ").trim() || "未命名想法";
+  const safeTitle = String(title || "").split(/\s+/).join(" ").trim() || DEFAULT_NOTE_TITLE;
   return `# ${safeTitle}\n\n${String(body || "").replace(/\r\n/g, "\n")}`;
 }
 
@@ -78,11 +80,13 @@ async function readTrashNote(id) {
 
 async function listNotes() {
   const files = await readdir(notesDir);
-  const notes = await Promise.all(
-    files
-      .filter((file) => extname(file) === ".md")
-      .map((file) => readNote(file.slice(0, -3))),
-  );
+  const notes = (
+    await Promise.all(
+      files
+        .filter((file) => extname(file) === ".md")
+        .map((file) => readNote(file.slice(0, -3)).catch(() => null)),
+    )
+  ).filter(Boolean);
   return notes.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -93,11 +97,13 @@ async function listTrashNotes() {
   } catch {
     return [];
   }
-  const notes = await Promise.all(
-    files
-      .filter((file) => extname(file) === ".md")
-      .map((file) => readTrashNote(file.slice(0, -3))),
-  );
+  const notes = (
+    await Promise.all(
+      files
+        .filter((file) => extname(file) === ".md")
+        .map((file) => readTrashNote(file.slice(0, -3)).catch(() => null)),
+    )
+  ).filter(Boolean);
   return notes.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -181,6 +187,12 @@ function validateNoteContent(title, body) {
   if (body && body.length > MAX_BODY_LEN) throw new Error(`Body too long (max ${MAX_BODY_LEN})`);
 }
 
+function resolveTitle(title, fallback) {
+  const normalized = String(title || "").split(/\s+/).join(" ").trim() || fallback;
+  if (normalized.length > MAX_TITLE_LEN) throw new Error(`Title too long (max ${MAX_TITLE_LEN})`);
+  return normalized;
+}
+
 function validateMindmapNode(node) {
   if (!node || typeof node !== "object") throw new Error("Invalid mindmap node");
   ensureId(node.id);
@@ -194,6 +206,7 @@ function validateMindmap(map) {
   if (!map || typeof map !== "object") throw new Error("Invalid mindmap");
   ensureId(map.id);
   if (typeof map.title !== "string") throw new Error("Invalid mindmap title");
+  if (map.title.length > MAX_TITLE_LEN) throw new Error(`Title too long (max ${MAX_TITLE_LEN})`);
   if (!Array.isArray(map.nodes)) map.nodes = [];
   map.nodes.forEach(validateMindmapNode);
 }
@@ -216,7 +229,8 @@ async function handleApi(request, response) {
 
   if (command === "create_note") {
     const id = `note-${nowMillis()}`;
-    await writeFile(notePath(id), serializeNote("未命名想法", ""), "utf8");
+    const title = resolveTitle(body?.title, DEFAULT_NOTE_TITLE);
+    await writeFile(notePath(id), serializeNote(title, ""), "utf8");
     return sendJson(response, await readNote(id));
   }
 
@@ -268,9 +282,10 @@ async function handleApi(request, response) {
 
   if (command === "create_mindmap") {
     const id = `mindmap-${nowMillis()}`;
+    const title = resolveTitle(body?.title, DEFAULT_MINDMAP_TITLE);
     const mm = {
       id,
-      title: "未命名导图",
+      title,
       updatedAt: nowMillis(),
       nodes: [],
     };

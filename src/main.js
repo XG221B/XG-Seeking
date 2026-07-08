@@ -22,12 +22,14 @@ const STRINGS = {
     mindmapEditHint: "Ctrl+Enter 确认编辑",
     mindmapEmptyHint: "Tab 添加第一个节点",
     editToggle: "编辑",
-        previewToggle: "预览",
-    fontSizeUp: "放大字号",
-    fontSizeDown: "缩小字号",
-    fontColor: "文字颜色",
-    fontSizeSelect: "字号",
-    fontSelectHint: "选中文字后使用",
+    previewToggle: "预览",
+    bold: "加粗",
+    italic: "斜体",
+    inlineCode: "行内代码",
+    heading: "标题",
+    blockquote: "引用",
+    unorderedList: "列表",
+    codeBlock: "代码块",
     settings: "设置",
     comingSoon: "暂未开放",
     untitled: "未命名想法",
@@ -86,11 +88,13 @@ const STRINGS = {
     mindmapEmptyHint: "Tab to add first node",
     editToggle: "Edit",
     previewToggle: "Preview",
-    fontSizeUp: "Increase font",
-    fontSizeDown: "Decrease font",
-    fontColor: "Text color",
-    fontSizeSelect: "Size",
-    fontSelectHint: "Select text first, then apply",
+    bold: "Bold",
+    italic: "Italic",
+    inlineCode: "Inline code",
+    heading: "Heading",
+    blockquote: "Quote",
+    unorderedList: "List",
+    codeBlock: "Code block",
     settings: "Settings",
     comingSoon: "Coming soon",
     untitled: "Untitled",
@@ -198,11 +202,16 @@ const pendingNoteSaves = new Map();
 // ── Markdown preview ──
 
 function renderMd(text) {
+  const isSafeMarkdownUrl = (value) => /^(https?:\/\/|mailto:|#|\/(?!\/))/i.test(value.trim());
   const inlineMd = (value) => escapeHtml(value)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
+      const safeUrl = url.trim();
+      if (!isSafeMarkdownUrl(safeUrl)) return match;
+      return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${label}</a>`;
+    });
 
   const output = [];
   let paragraph = [];
@@ -220,6 +229,18 @@ function renderMd(text) {
 
     if (!trimmed) {
       flushParagraph();
+      continue;
+    }
+
+    if (trimmed.startsWith("```")) {
+      flushParagraph();
+      const codeLines = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
       continue;
     }
 
@@ -243,6 +264,18 @@ function renderMd(text) {
       continue;
     }
 
+    if (/^>\s?/.test(trimmed)) {
+      flushParagraph();
+      const quoteLines = [];
+      while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+        quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      i -= 1;
+      output.push(`<blockquote>${quoteLines.map(inlineMd).join("<br>")}</blockquote>`);
+      continue;
+    }
+
     paragraph.push(line);
   }
 
@@ -251,17 +284,7 @@ function renderMd(text) {
 }
 
 function bodyToPreviewHtml(value) {
-  const safe = String(value || "")
-    // 1. Escape everything
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    // 2. Whitelist safe spans: <span style="font-size:Npx"> or <span style="color:#xxx">
-    .replace(/&lt;span\s+style="(font-size:\d{2}px|color:#[0-9a-fA-F]{6})"&gt;/g, '<span style="$1">')
-    .replace(/&lt;\/span&gt;/g, "</span>");
-  // Validate: reject any remaining HTML tags
-  if (/<[a-z][^>]*>/i.test(safe.replace(/<\/?span[^>]*>/gi, ""))) {
-    return escapeHtml(value);
-  }
-  return renderMd(safe).replace(/&lt;/g, "&amp;lt;");
+  return renderMd(value);
 }
 
 function editorValueToBody(value) {
@@ -340,7 +363,7 @@ async function setPage(page) {
     const mm = getCurrentMindmap();
     if (mm) {
       clearTimeout(mindmapSaveTimer);
-      saveMindmap(mm);
+      await saveMindmap(mm);
     }
   }
   state.page = page;
@@ -562,20 +585,24 @@ function renderNotes() {
 }
 
 function renderRichEditor(note) {
+  const markdownToolbar = state.sourceMode
+    ? `<button class="toolbar-btn" id="mdBold" title="${t("bold")} (Ctrl+B)"><strong>B</strong></button>
+      <button class="toolbar-btn" id="mdItalic" title="${t("italic")} (Ctrl+I)"><em>I</em></button>
+      <button class="toolbar-btn" id="mdCode" title="${t("inlineCode")}"><code>\`</code></button>
+      <button class="toolbar-btn" id="mdHeading" title="${t("heading")}">H</button>
+      <button class="toolbar-btn" id="mdQuote" title="${t("blockquote")}">&gt;</button>
+      <button class="toolbar-btn" id="mdList" title="${t("unorderedList")}">-</button>
+      <button class="toolbar-btn" id="mdCodeBlock" title="${t("codeBlock")}">#</button>
+      <span class="toolbar-sep"></span>`
+    : "";
+
   return `<div class="form" id="form">` +
     `<input class="title" id="title" placeholder="${t("todaysThoughts")}" value="${escapeHtml(note.title)}">` +
     (!state.sourceMode
       ? `<div class="md-preview" id="mdPreview">${bodyToPreviewHtml(note.body)}</div>`
       : `<textarea class="body markdown-source" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar mode-toolbar" aria-label="Editor mode">
-      <select class="toolbar-select" id="fontSize" title="${t("fontSizeUp")}">
-        <option value="">${t("fontSizeSelect")}</option>
-        <option value="10">10px</option><option value="12">12px</option><option value="14">14px</option>
-        <option value="16">16px</option><option value="18">18px</option><option value="20">20px</option>
-        <option value="24">24px</option><option value="28">28px</option><option value="32">32px</option>
-      </select>
-      <input type="color" class="toolbar-color" id="fontColor" title="${t("fontColor")}" value="#c0392b">
-      <span class="toolbar-hint" id="formatHint">${t("fontSelectHint")}</span>
+      ${markdownToolbar}
       <button class="toolbar-btn mode-btn ${state.sourceMode ? "active" : ""}" id="editMode" title="${t("editToggle")}">Edit</button>
       <button class="toolbar-btn mode-btn ${!state.sourceMode ? "active" : ""}" id="previewMode" title="${t("previewToggle")}">Preview</button>
     </div>` +
@@ -660,6 +687,7 @@ function bindNotesEvents() {
 
     document.getElementById("editMode")?.addEventListener("click", () => switchNoteMode(true));
     document.getElementById("previewMode")?.addEventListener("click", () => switchNoteMode(false));
+    bindMarkdownTools();
   } else {
     const restoreBtn = document.getElementById("restoreBtn");
     if (restoreBtn) {
@@ -673,49 +701,6 @@ function bindNotesEvents() {
 
   bindListEvents();
   if (!state.showTrash) bindEditorAutoSave();
-  bindFormatTools();
-
-}
-
-function bindFormatTools() {
-  const fs = document.getElementById("fontSize");
-  const fc = document.getElementById("fontColor");
-  const hint = document.getElementById("formatHint");
-  if (!fs || !fc) return;
-
-  fs.addEventListener("change", () => {
-    const px = fs.value;
-    if (!px) return;
-    const body = document.getElementById("body");
-    if (!body || body.tagName !== "TEXTAREA") return;
-    const start = body.selectionStart;
-    const end = body.selectionEnd;
-    if (start === end) {
-      if (hint) hint.textContent = t("fontSelectHint");
-      fs.value = "";
-      return;
-    }
-    const text = body.value.substring(start, end);
-    const wrapped = `<span style="font-size:${px}px">${text}</span>`;
-    body.setRangeText(wrapped, start, end, "end");
-    body.dispatchEvent(new Event("input", { bubbles: true }));
-    fs.value = "";
-  });
-
-  fc.addEventListener("input", () => {
-    const body = document.getElementById("body");
-    if (!body || body.tagName !== "TEXTAREA") return;
-    const start = body.selectionStart;
-    const end = body.selectionEnd;
-    if (start === end) {
-      if (hint) hint.textContent = t("fontSelectHint");
-      return;
-    }
-    const text = body.value.substring(start, end);
-    const wrapped = `<span style="color:${fc.value}">${text}</span>`;
-    body.setRangeText(wrapped, start, end, "end");
-    body.dispatchEvent(new Event("input", { bubbles: true }));
-  });
 }
 
 function switchNoteMode(sourceMode) {
@@ -727,6 +712,54 @@ function switchNoteMode(sourceMode) {
   state.sourceMode = sourceMode;
   renderNotes();
   scheduleAutoSave();
+}
+
+function bindMarkdownTools() {
+  const body = document.getElementById("body");
+  if (!body || body.tagName !== "TEXTAREA") return;
+
+  const replaceRange = (start, end, value, selectStart = null, selectEnd = null) => {
+    body.setRangeText(value, start, end, "end");
+    body.dispatchEvent(new Event("input", { bubbles: true }));
+    body.focus();
+    if (selectStart !== null && selectEnd !== null) body.setSelectionRange(selectStart, selectEnd);
+  };
+
+  const wrapSel = (before, after, placeholder = "text") => {
+    const s = body.selectionStart, e = body.selectionEnd;
+    const selected = body.value.substring(s, e);
+    const content = selected || placeholder;
+    replaceRange(s, e, before + content + after, s + before.length, s + before.length + content.length);
+  };
+
+  const prefixLines = (prefix, placeholder = "text") => {
+    const s = body.selectionStart;
+    const e = body.selectionEnd;
+    const v = body.value;
+    if (s === e) {
+      replaceRange(s, e, prefix + placeholder, s + prefix.length, s + prefix.length + placeholder.length);
+      return;
+    }
+    const ls = v.lastIndexOf("\n", s - 1) + 1;
+    const le = v.indexOf("\n", e);
+    const end = le === -1 ? v.length : le;
+    const lines = v.substring(ls, end).split("\n");
+    const next = lines.map((line) => line.startsWith(prefix) ? line : prefix + line).join("\n");
+    replaceRange(ls, end, next);
+  };
+
+  document.getElementById("mdBold")?.addEventListener("click", () => wrapSel("**", "**"));
+  document.getElementById("mdItalic")?.addEventListener("click", () => wrapSel("*", "*"));
+  document.getElementById("mdCode")?.addEventListener("click", () => wrapSel("`", "`"));
+  document.getElementById("mdHeading")?.addEventListener("click", () => prefixLines("# ", "Heading"));
+  document.getElementById("mdQuote")?.addEventListener("click", () => prefixLines("> "));
+  document.getElementById("mdList")?.addEventListener("click", () => prefixLines("- "));
+  document.getElementById("mdCodeBlock")?.addEventListener("click", () => {
+    const s = body.selectionStart, e = body.selectionEnd;
+    const selected = body.value.substring(s, e);
+    const content = selected || "code";
+    replaceRange(s, e, "```\n" + content + "\n```", s + 4, s + 4 + content.length);
+  });
 }
 
 function bindEditorAutoSave() {
@@ -833,9 +866,7 @@ async function toggleTrashView() {
 
 async function createNote() {
   try {
-    const note = await invoke("create_note");
-    note.title = t("untitled");
-    await invoke("save_note", note);
+    const note = await invoke("create_note", { title: t("untitled") });
     state.notes.unshift(note);
     selectNote(note.id, { edit: true });
     renderNotes();
@@ -1313,6 +1344,25 @@ function deleteNode(mm) {
 }
 
 let mindmapSaveTimer = 0;
+const pendingMindmapSaves = new Map();
+
+function trackMindmapSave(id, promise) {
+  if (!pendingMindmapSaves.has(id)) pendingMindmapSaves.set(id, new Set());
+  const saves = pendingMindmapSaves.get(id);
+  saves.add(promise);
+  const cleanup = () => {
+    saves.delete(promise);
+    if (saves.size === 0) pendingMindmapSaves.delete(id);
+  };
+  promise.then(cleanup, cleanup);
+}
+
+async function waitForMindmapSaves(id) {
+  const saves = pendingMindmapSaves.get(id);
+  if (!saves || saves.size === 0) return;
+  await Promise.allSettled(Array.from(saves));
+}
+
 function scheduleMindmapSave(mm) {
   clearTimeout(mindmapSaveTimer);
   mindmapSaveTimer = setTimeout(() => saveMindmap(mm), 500);
@@ -1347,9 +1397,7 @@ async function loadMindmapTrashSilent(token = pageLoadToken) {
 
 async function createMindmap() {
   let mm;
-  try { mm = await invoke("create_mindmap"); } catch (e) { alert(e); return; }
-  mm.title = t("mindmapUntitled");
-  await saveMindmap(mm);
+  try { mm = await invoke("create_mindmap", { title: t("mindmapUntitled") }); } catch (e) { alert(e); return; }
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
   state.selectedNodeId = "";
@@ -1358,10 +1406,13 @@ async function createMindmap() {
 }
 
 async function saveMindmap(mm) {
-  try { await invoke("save_mindmap", { mm }); } catch {}
+  const request = invoke("save_mindmap", { mm });
+  trackMindmapSave(mm.id, request);
+  try { await request; } catch {}
 }
 
 async function trashMindmap(id) {
+  await waitForMindmapSaves(id);
   try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";

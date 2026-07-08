@@ -140,8 +140,10 @@ fn list_notes_in(dir: &Path) -> Result<Vec<Note>, String> {
         }
         if let Some(raw_id) = path.file_stem().and_then(|stem| stem.to_str()) {
             let id = raw_id.to_string();
-            validate_note_id(&id)?;
-            notes.push(read_note_from(&path, &id)?);
+            if validate_note_id(&id).is_err() { continue; }
+            if let Ok(note) = read_note_from(&path, &id) {
+                notes.push(note);
+            }
         }
     }
     notes.sort_by_key(|b| Reverse(b.updated_at));
@@ -167,14 +169,30 @@ fn validate_note_content(title: &str, body: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn create_note(app_data: &Path) -> Result<Note, String> {
+fn resolve_title(title: Option<String>) -> Result<String, String> {
+    let normalized = title
+        .unwrap_or_else(|| "未命名想法".into())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let resolved = if normalized.is_empty() {
+        "未命名想法".into()
+    } else {
+        normalized
+    };
+    validate_note_content(&resolved, "")?;
+    Ok(resolved)
+}
+
+pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, String> {
     let id = format!("note-{}", now_millis()?);
     let ts = now_millis()?;
+    let resolved = resolve_title(title)?;
     let path = note_path(app_data, &id)?;
-    fs::write(path, serialize_note("未命名想法", "")).map_err(|e| e.to_string())?;
+    fs::write(path, serialize_note(&resolved, "")).map_err(|e| e.to_string())?;
     Ok(Note {
         id,
-        title: "未命名想法".into(),
+        title: resolved,
         body: String::new(),
         updated_at: ts,
     })

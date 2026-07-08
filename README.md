@@ -1,68 +1,94 @@
-<div align="center">
-
-<img src="src-tauri/icons/icon.ico" width="80" alt="XG-Seeking">
-
 # XG-Seeking
 
-### 寻找心灵的碎片 · Seeking Fragments of the Soul
+Seeking Fragments of the Soul
 
-A minimalist, local-first desktop notes app — write, search, and never lose a thought.
+A minimalist, local-first desktop notes app for writing Markdown notes, searching quickly, and keeping deleted items recoverable through a trash workflow.
 
 [![Release](https://img.shields.io/github/v/release/XG221B/xg-seeking?color=%23002060)](https://github.com/XG221B/xg-seeking/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-%23002060)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-%23002060)](https://github.com/XG221B/xg-seeking/releases/latest)
 
-</div>
+## Features
 
----
+- Local-first Markdown notes.
+- Edit and Preview modes.
+- Auto-save.
+- Search.
+- Trash, restore, and permanent delete workflows.
+- Mindmap notes.
+- Chinese and English UI modes.
+- Browser-only local development mode through `local-server.mjs`.
+- Desktop app packaging through Tauri.
 
-## ✨ Features · 功能
+## Install
 
-XG-Seeking is a no-fuss notebook that stays out of your way. Write Markdown notes with auto-save, find anything instantly with real-time search, and never worry about accidental deletions thanks to a built-in recycle bin. Switch between Chinese and English on the fly, tweak the window title to your liking, and rest easy knowing everything lives right on your disk — no accounts, no cloud, no nonsense. One lightweight installer, uninstalls cleanly.
+Download the latest `XG221B_0.x.x_x64-setup.exe` from [Releases](https://github.com/XG221B/xg-seeking/releases/latest) and run it.
 
-## 📥 Install · 安装
+To uninstall, use Windows Settings > Apps > XG221B, or run `uninstall.exe` from the install directory.
 
-Download the latest `XG221B_0.x.x_x64-setup.exe` from [Releases](https://github.com/XG221B/xg-seeking/releases/latest) and run it. Uninstall via **Settings → Apps → XG221B** or `uninstall.exe` in the install directory.
+## Development
 
-## 🛠 Development · 开发
+Prerequisites:
 
-**Prerequisites:** Node.js, Rust + Cargo, Windows WebView2
+- Node.js
+- Rust + Cargo
+- Windows WebView2
+
+Common commands:
 
 ```bash
-npm install           # install dependencies
-npm run dev           # Tauri dev mode (frontend HMR + Rust debug)
-npm run web:dev       # browser-only at http://127.0.0.1:1420
-npm run build         # production build → installer
+npm install
+npm run dev
+npm run web:dev
+npm run web:build
+npm run build
 ```
 
-## 🧱 Tech Stack · 技术栈
+## Project Structure
 
-| Layer 层 | Tech 技术 |
-|----------|-----------|
-| Desktop Shell | [Tauri 2](https://tauri.app) (Rust) |
-| Frontend | Vanilla JS + CSS, bundled with [Vite](https://vitejs.dev) |
-| Storage | `.md` files under `%APPDATA%/com.xg221b.notes/` |
-| Web Fallback | Node.js `local-server.mjs` (identical API to Tauri backend) |
-
-## 📁 Project Structure · 项目结构
-
-```
+```text
 xg-seeking/
-├── index.html              # Vite entry
-├── src/
-│   ├── main.js             # App logic, i18n, router
-│   └── styles.css          # All styles
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs         # Tauri command handlers
-│   │   ├── notes.rs        # Note CRUD + trash logic
-│   │   └── settings.rs     # Settings persistence
-│   ├── icons/icon.ico      # App icon
-│   └── Cargo.toml
-├── local-server.mjs        # Dev web server
-└── package.json
+|-- .github/               # GitHub workflows and release config
+|-- docs/                  # Project documentation
+|   |-- CHANGELOG.md
+|   `-- QA-WORKFLOW.md
+|-- scripts/               # Helper scripts for local use
+|   `-- start-xg221b.vbs / startup script
+|-- src/                   # Frontend source
+|   |-- main.js
+|   `-- styles.css
+|-- src-tauri/             # Tauri/Rust desktop shell
+|   |-- src/
+|   |   |-- main.rs
+|   |   |-- notes.rs
+|   |   |-- mindmap.rs
+|   |   `-- settings.rs
+|   |-- icons/
+|   |-- Cargo.toml
+|   `-- Cargo.lock
+|-- AGENTS.md              # Agent workflow and QA rules
+|-- index.html             # Vite entry
+|-- local-server.mjs       # Browser-only local backend
+|-- package.json
+|-- package-lock.json
+|-- LICENSE
+`-- README.md
 ```
 
-## 📄 License
+Generated or local-only folders are intentionally ignored by Git:
 
-MIT © XG221B
+- `node_modules/`
+- `dist/`
+- `src-tauri/target/`
+- `src-tauri/gen/`
+- `local-data/`
+
+## Documentation
+
+- [QA workflow](docs/QA-WORKFLOW.md)
+- [Changelog](docs/CHANGELOG.md)
+- [Agent rules](AGENTS.md)
+
+## License
+
+MIT, XG221B

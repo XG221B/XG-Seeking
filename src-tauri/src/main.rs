@@ -25,8 +25,8 @@ fn list_notes(app: AppHandle) -> Result<Vec<Note>, String> {
 }
 
 #[tauri::command]
-fn create_note(app: AppHandle) -> Result<Note, String> {
-    notes::create_note(&app_data(&app)?)
+fn create_note(app: AppHandle, title: Option<String>) -> Result<Note, String> {
+    notes::create_note(&app_data(&app)?, title)
 }
 
 #[tauri::command]
@@ -62,8 +62,8 @@ fn list_mindmaps(app: AppHandle) -> Result<Vec<Mindmap>, String> {
 }
 
 #[tauri::command]
-fn create_mindmap(app: AppHandle) -> Result<Mindmap, String> {
-    mindmap::create_mindmap(&app_data(&app)?)
+fn create_mindmap(app: AppHandle, title: Option<String>) -> Result<Mindmap, String> {
+    mindmap::create_mindmap(&app_data(&app)?, title)
 }
 
 #[tauri::command]

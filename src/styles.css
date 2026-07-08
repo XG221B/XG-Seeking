@@ -329,10 +329,29 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 .md-preview p { margin: 0 0 12px; }
 .md-preview ul { margin: 0 0 12px; padding-left: 24px; }
 .md-preview li { margin: 4px 0; }
+.md-preview blockquote {
+  margin: 0 0 12px;
+  padding: 6px 0 6px 16px;
+  border-left: 3px solid var(--accent-mid);
+  color: var(--color-text-muted);
+}
+.md-preview pre {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-alt);
+}
 .md-preview code {
   padding: 1px 5px; border-radius: 4px;
   background: var(--color-surface-alt);
   font-size: .92em;
+}
+.md-preview pre code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .md-preview strong { font-weight: 700; }
 .md-preview em { font-style: italic; }
@@ -370,6 +389,14 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 .toolbar-btn:hover, .toolbar-btn.active {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.toolbar-sep {
+  display: inline-block;
+  width: 1px; height: 20px;
+  margin: 0 4px;
+  background: var(--color-border);
+  align-self: center;
 }
 
 /* ── Trash ── */

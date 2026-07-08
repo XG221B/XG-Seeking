@@ -1,9 +1,10 @@
-' XG221B Launcher — always runs the latest built version
+' XG221B launcher - runs the latest built version when available.
 Set shell = CreateObject("WScript.Shell")
 Set files = CreateObject("Scripting.FileSystemObject")
 
-folder = files.GetParentFolderName(WScript.ScriptFullName)
-builtExe = folder & "\src-tauri\target\release\xg221b.exe"
+scriptFolder = files.GetParentFolderName(WScript.ScriptFullName)
+projectRoot = files.GetParentFolderName(scriptFolder)
+builtExe = projectRoot & "\src-tauri\target\release\xg221b.exe"
 installedExe = "D:\XG221B\xg221b.exe"
 
 If files.FileExists(builtExe) Then
