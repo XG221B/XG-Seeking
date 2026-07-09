@@ -19,6 +19,7 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
+      - run: npm run qa
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,5 +30,5 @@ jobs:
             XG221B is a lightweight local-first desktop notes app.
 
             See docs/CHANGELOG.md for details.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false

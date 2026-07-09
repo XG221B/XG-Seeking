@@ -1,13 +1,13 @@
-# XG221B 0.1.0
+# XG221B 0.2.0
 
-XG221B is a lightweight local-first notes app built with Tauri.
+XG221B is a lightweight local-first Markdown notes app built with Tauri.
 
 ## Highlights
 
-- Four-slot personal workspace layout
-- Local Markdown notes with auto-save
-- Chinese-friendly search with result feedback
-- Notes stored outside the app bundle in the system app data directory
+- Markdown-first Notes with Edit and Preview modes
+- Notes and Mindmaps with Trash, Restore, and permanent delete workflows
+- Real browser UI smoke tests for notes, mindmaps, page switching, and cleanup
+- Safer local storage writes for notes, mindmaps, and settings
 - Lightweight Windows installer
 
 ## Install
