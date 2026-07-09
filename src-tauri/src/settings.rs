@@ -1,3 +1,4 @@
+use crate::storage::atomic_write_text;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -47,5 +48,5 @@ pub fn load(app_data: &Path) -> Result<Settings, String> {
 pub fn save(app_data: &Path, settings: &Settings) -> Result<(), String> {
     let path = settings_path(app_data);
     let raw = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(path, raw).map_err(|e| e.to_string())
+    atomic_write_text(&path, &raw)
 }

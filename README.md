@@ -11,7 +11,7 @@ A minimalist, local-first desktop notes app for writing Markdown notes, searchin
 ## Features
 
 - Local-first Markdown notes.
-- Edit and Preview modes.
+- Obsidian-style Edit and Preview modes: Edit writes raw Markdown, Preview renders it for reading.
 - Auto-save.
 - Search.
 - Trash, restore, and permanent delete workflows.
@@ -19,6 +19,12 @@ A minimalist, local-first desktop notes app for writing Markdown notes, searchin
 - Chinese and English UI modes.
 - Browser-only local development mode through `local-server.mjs`.
 - Desktop app packaging through Tauri.
+
+## Product Direction
+
+XG-Seeking treats Markdown as the canonical note format. It is not a Word-style rich text editor: note content is saved as Markdown source, and formatting should be represented with Markdown syntax rather than hidden rich-text state.
+
+The app is local-first. Notes, mindmaps, trash, and settings are stored locally, with safer write paths and smoke tests intended to catch data-loss, page-switching, trash, restore, and preview regressions before release.
 
 ## Install
 
@@ -41,8 +47,17 @@ npm install
 npm run dev
 npm run web:dev
 npm run web:build
+npm run smoke
+npm run smoke:ui
+npm run qa
 npm run build
 ```
+
+QA commands:
+
+- `npm run smoke`: API/data smoke test for notes, trash, mindmaps, settings contracts, validation, and cleanup.
+- `npm run smoke:ui`: real browser UI smoke test for Notes and Mindmaps. It uses installed Chrome/Edge, or `CHROME_PATH` if a custom browser path is needed.
+- `npm run qa`: runs both smoke suites.
 
 ## Project Structure
 
@@ -62,10 +77,13 @@ xg-seeking/
 |   |   |-- main.rs
 |   |   |-- notes.rs
 |   |   |-- mindmap.rs
-|   |   `-- settings.rs
+|   |   |-- settings.rs
+|   |   `-- storage.rs
 |   |-- icons/
 |   |-- Cargo.toml
 |   `-- Cargo.lock
+|-- tests/                 # Smoke and regression checks
+|   `-- smoke/
 |-- AGENTS.md              # Agent workflow and QA rules
 |-- index.html             # Vite entry
 |-- local-server.mjs       # Browser-only local backend

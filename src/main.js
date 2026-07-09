@@ -66,6 +66,9 @@ const STRINGS = {
     settingsSaved: "已保存",
     settingsSaveFailed: "保存失败",
     settingsLoadFailed: "设置读取失败",
+    savePending: "保存中",
+    saveSaved: "已保存",
+    saveFailed: "保存失败，请检查磁盘权限或空间",
     appTitle: "寻找心灵的碎片...",
   },
   en: {
@@ -131,6 +134,9 @@ const STRINGS = {
     settingsSaved: "Saved",
     settingsSaveFailed: "Save failed",
     settingsLoadFailed: "Failed to load settings",
+    savePending: "Saving",
+    saveSaved: "Saved",
+    saveFailed: "Save failed. Check disk permissions or space.",
     appTitle: "Seeking fragments of the soul...",
   },
 };
@@ -193,11 +199,14 @@ const state = {
   mindmapQuery: "",
   mindmapTrash: [],
   editingNode: false,
+  noteSaveStatus: "",
+  mindmapSaveStatus: "",
 };
 
 let autoSaveTimer = 0;
 let pageLoadToken = 0;
-const pendingNoteSaves = new Map();
+const noteSaveQueue = new Map();
+let noteSaveSeq = 0;
 
 // ── Markdown preview ──
 
@@ -356,14 +365,16 @@ async function setPage(page) {
   if (state.page === "notes" && !state.showTrash) {
     clearTimeout(autoSaveTimer);
     syncEditorToNote();
-    saveNote();
+    const saved = await saveNote({ showAlert: true });
+    if (!saved) return;
   }
 
   if (state.page === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
     if (mm) {
       clearTimeout(mindmapSaveTimer);
-      await saveMindmap(mm);
+      const saved = await saveMindmap(mm, { showAlert: true });
+      if (!saved) return;
     }
   }
   state.page = page;
@@ -603,6 +614,7 @@ function renderRichEditor(note) {
       : `<textarea class="body markdown-source" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar mode-toolbar" aria-label="Editor mode">
       ${markdownToolbar}
+      <span class="save-status ${state.noteSaveStatus === "failed" ? "failed" : ""}" id="noteSaveStatus">${saveStatusText(state.noteSaveStatus)}</span>
       <button class="toolbar-btn mode-btn ${state.sourceMode ? "active" : ""}" id="editMode" title="${t("editToggle")}">Edit</button>
       <button class="toolbar-btn mode-btn ${!state.sourceMode ? "active" : ""}" id="previewMode" title="${t("previewToggle")}">Preview</button>
     </div>` +
@@ -865,6 +877,7 @@ async function toggleTrashView() {
 }
 
 async function createNote() {
+  pageLoadToken += 1;
   try {
     const note = await invoke("create_note", { title: t("untitled") });
     state.notes.unshift(note);
@@ -880,28 +893,44 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(saveNote, 500);
 }
 
-function trackNoteSave(id, promise) {
-  if (!pendingNoteSaves.has(id)) pendingNoteSaves.set(id, new Set());
-  const saves = pendingNoteSaves.get(id);
-  saves.add(promise);
-  const cleanup = () => {
-    saves.delete(promise);
-    if (saves.size === 0) pendingNoteSaves.delete(id);
-  };
-  promise.then(cleanup, cleanup);
+function saveStatusText(status) {
+  if (status === "pending") return t("savePending");
+  if (status === "saved") return t("saveSaved");
+  if (status === "failed") return t("saveFailed");
+  return "";
+}
+
+function updateSaveStatus(target, status) {
+  if (target === "note") state.noteSaveStatus = status;
+  if (target === "mindmap") state.mindmapSaveStatus = status;
+  const id = target === "note" ? "noteSaveStatus" : "mindmapSaveStatus";
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = saveStatusText(status);
+  el.classList.toggle("failed", status === "failed");
+}
+
+function queueById(queue, id, task) {
+  const previous = queue.get(id) || Promise.resolve();
+  const current = previous.catch(() => {}).then(task);
+  const tracked = current.finally(() => {
+    if (queue.get(id) === tracked) queue.delete(id);
+  });
+  queue.set(id, tracked);
+  return current;
 }
 
 async function waitForNoteSaves(id) {
-  const saves = pendingNoteSaves.get(id);
-  if (!saves || saves.size === 0) return;
-  await Promise.allSettled(Array.from(saves));
+  const save = noteSaveQueue.get(id);
+  if (!save) return;
+  await save.catch(() => {});
 }
 
-async function saveNote() {
-  if (!state.selectedId || state.showTrash) return;
+async function saveNote(options = {}) {
+  if (!state.selectedId || state.showTrash) return true;
   const titleField = document.getElementById("title");
   const bodyField = document.getElementById("body");
-  if (!titleField) return;
+  if (!titleField) return true;
   const currentNote = selectedNote();
 
   const id = state.selectedId;
@@ -912,12 +941,14 @@ async function saveNote() {
   };
 
   let saved;
-  const request = invoke("save_note", payload);
-  trackNoteSave(id, request);
+  const seq = ++noteSaveSeq;
+  updateSaveStatus("note", "pending");
   try {
-    saved = await request;
-  } catch {
-    return;
+    saved = await queueById(noteSaveQueue, id, () => invoke("save_note", payload));
+  } catch (error) {
+    if (seq === noteSaveSeq) updateSaveStatus("note", "failed");
+    if (options.showAlert) alert(`${t("saveFailed")}: ${error}`);
+    return false;
   }
 
   const note = state.notes.find((item) => item.id === saved.id);
@@ -931,11 +962,23 @@ async function saveNote() {
     const activeTime = document.querySelector(".note-row.active time");
     if (activeTime) activeTime.textContent = formatDate(saved.updatedAt);
   }
+  if (seq === noteSaveSeq) {
+    updateSaveStatus("note", "saved");
+    setTimeout(() => {
+      if (seq === noteSaveSeq && state.noteSaveStatus === "saved") updateSaveStatus("note", "");
+    }, 1400);
+  }
+  return true;
 }
 
 async function trashNote(id) {
   if (!id) return;
   clearTimeout(autoSaveTimer);
+  if (id === state.selectedId) {
+    syncEditorToNote();
+    const saved = await saveNote({ showAlert: true });
+    if (!saved) return;
+  }
   await waitForNoteSaves(id);
 
   try { await invoke("delete_note", { id }); } catch (e) { alert(e); return; }
@@ -1036,6 +1079,7 @@ function renderMindmapCanvas(mm) {
     <div class="mm-toolbar">
       <input class="mm-title-input" id="mmTitle" value="${escapeHtml(mm.title)}" placeholder="${t("mindmapUntitled")}">
       <div class="mm-shortcuts">
+        <span class="save-status ${state.mindmapSaveStatus === "failed" ? "failed" : ""}" id="mindmapSaveStatus">${saveStatusText(state.mindmapSaveStatus)}</span>
         <span>${t("mindmapShortcuts")}</span>
         <span class="mm-edit-hint">${t("mindmapEditHint")}</span>
       </div>
@@ -1087,8 +1131,8 @@ function bindMindmapEvents() {
       mm.title = titleInput.value || t("mindmapUntitled");
       scheduleMindmapSave(mm);
       // Update sidebar item in-place
-      const item = document.querySelector(`.mindmap-item[data-id="${mm.id}"]`);
-      if (item) item.textContent = mm.title;
+      const itemTitle = document.querySelector(`.mindmap-item[data-id="${mm.id}"] strong`);
+      if (itemTitle) itemTitle.textContent = mm.title;
     });
   }
 
@@ -1344,23 +1388,13 @@ function deleteNode(mm) {
 }
 
 let mindmapSaveTimer = 0;
-const pendingMindmapSaves = new Map();
-
-function trackMindmapSave(id, promise) {
-  if (!pendingMindmapSaves.has(id)) pendingMindmapSaves.set(id, new Set());
-  const saves = pendingMindmapSaves.get(id);
-  saves.add(promise);
-  const cleanup = () => {
-    saves.delete(promise);
-    if (saves.size === 0) pendingMindmapSaves.delete(id);
-  };
-  promise.then(cleanup, cleanup);
-}
+const mindmapSaveQueue = new Map();
+let mindmapSaveSeq = 0;
 
 async function waitForMindmapSaves(id) {
-  const saves = pendingMindmapSaves.get(id);
-  if (!saves || saves.size === 0) return;
-  await Promise.allSettled(Array.from(saves));
+  const save = mindmapSaveQueue.get(id);
+  if (!save) return;
+  await save.catch(() => {});
 }
 
 function scheduleMindmapSave(mm) {
@@ -1396,6 +1430,7 @@ async function loadMindmapTrashSilent(token = pageLoadToken) {
 }
 
 async function createMindmap() {
+  pageLoadToken += 1;
   let mm;
   try { mm = await invoke("create_mindmap", { title: t("mindmapUntitled") }); } catch (e) { alert(e); return; }
   state.mindmaps.unshift(mm);
@@ -1405,13 +1440,36 @@ async function createMindmap() {
   renderMindmaps();
 }
 
-async function saveMindmap(mm) {
-  const request = invoke("save_mindmap", { mm });
-  trackMindmapSave(mm.id, request);
-  try { await request; } catch {}
+async function saveMindmap(mm, options = {}) {
+  if (!mm) return true;
+  const seq = ++mindmapSaveSeq;
+  updateSaveStatus("mindmap", "pending");
+  try {
+    const snapshot = JSON.parse(JSON.stringify(mm));
+    const saved = await queueById(mindmapSaveQueue, mm.id, () => invoke("save_mindmap", { mm: snapshot }));
+    const existing = state.mindmaps.find((item) => item.id === saved.id);
+    if (existing) existing.updatedAt = saved.updatedAt;
+  } catch (error) {
+    if (seq === mindmapSaveSeq) updateSaveStatus("mindmap", "failed");
+    if (options.showAlert) alert(`${t("saveFailed")}: ${error}`);
+    return false;
+  }
+  if (seq === mindmapSaveSeq) {
+    updateSaveStatus("mindmap", "saved");
+    setTimeout(() => {
+      if (seq === mindmapSaveSeq && state.mindmapSaveStatus === "saved") updateSaveStatus("mindmap", "");
+    }, 1400);
+  }
+  return true;
 }
 
 async function trashMindmap(id) {
+  const mm = state.mindmaps.find((item) => item.id === id);
+  if (mm) {
+    clearTimeout(mindmapSaveTimer);
+    const saved = await saveMindmap(mm, { showAlert: true });
+    if (!saved) return;
+  }
   await waitForMindmapSaves(id);
   try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);

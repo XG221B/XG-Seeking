@@ -2,9 +2,12 @@ import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
-import { extname, join, normalize, resolve } from "node:path";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 
-const port = 1420;
+const port = Number(process.env.PORT || 1420);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("PORT must be an integer between 1 and 65535");
+}
 const root = process.cwd();
 const distDir = join(root, "dist");
 const dataDir = join(root, "local-data");
@@ -29,6 +32,17 @@ await mkdir(mindmapsTrashDir, { recursive: true });
 
 function nowMillis() {
   return Date.now();
+}
+
+async function atomicWriteText(file, text) {
+  const temp = join(dirname(file), `.${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+  try {
+    await writeFile(temp, text, "utf8");
+    await rename(temp, file);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 function ensureId(id) {
@@ -117,7 +131,7 @@ async function loadSettings() {
 }
 
 async function saveSettings(settings) {
-  await writeFile(settingsFile, JSON.stringify(settings, null, 2), "utf8");
+  await atomicWriteText(settingsFile, JSON.stringify(settings, null, 2));
 }
 
 // ── Mindmaps ──
@@ -230,13 +244,13 @@ async function handleApi(request, response) {
   if (command === "create_note") {
     const id = `note-${nowMillis()}`;
     const title = resolveTitle(body?.title, DEFAULT_NOTE_TITLE);
-    await writeFile(notePath(id), serializeNote(title, ""), "utf8");
+    await atomicWriteText(notePath(id), serializeNote(title, ""));
     return sendJson(response, await readNote(id));
   }
 
   if (command === "save_note") {
     validateNoteContent(body.title, body.body);
-    await writeFile(notePath(body.id), serializeNote(body.title, body.body), "utf8");
+    await atomicWriteText(notePath(body.id), serializeNote(body.title, body.body));
     return sendJson(response, await readNote(body.id));
   }
 
@@ -244,10 +258,11 @@ async function handleApi(request, response) {
   if (command === "delete_note") {
     const src = notePath(body.id);
     const dst = trashNotePath(body.id);
+    if (existsSync(dst)) throw new Error("A trashed note with this id already exists");
     try {
       await rename(src, dst);
-    } catch {
-      // If the file is already gone, that's fine
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
     }
     response.writeHead(204);
     return response.end();
@@ -258,6 +273,7 @@ async function handleApi(request, response) {
   if (command === "restore_note") {
     const src = trashNotePath(body.id);
     const dst = notePath(body.id);
+    if (existsSync(dst)) throw new Error("A note with this id already exists");
     await rename(src, dst);
     return sendJson(response, await readNote(body.id));
   }
@@ -289,7 +305,7 @@ async function handleApi(request, response) {
       updatedAt: nowMillis(),
       nodes: [],
     };
-    await writeFile(mindmapPath(id), JSON.stringify(mm), "utf8");
+    await atomicWriteText(mindmapPath(id), JSON.stringify(mm));
     return sendJson(response, mm);
   }
 
@@ -297,14 +313,18 @@ async function handleApi(request, response) {
     const data = body.mm || body; // accept both {mm:{...}} (Tauri) and flat (web)
     validateMindmap(data);
     const mm = { ...data, updatedAt: nowMillis() };
-    await writeFile(mindmapPath(data.id), JSON.stringify(mm), "utf8");
+    await atomicWriteText(mindmapPath(data.id), JSON.stringify(mm));
     return sendJson(response, mm);
   }
 
   if (command === "delete_mindmap") {
+    const dst = mindmapTrashPath(body.id);
+    if (existsSync(dst)) throw new Error("A trashed mindmap with this id already exists");
     try {
-      await rename(mindmapPath(body.id), mindmapTrashPath(body.id));
-    } catch {}
+      await rename(mindmapPath(body.id), dst);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
     response.writeHead(204);
     return response.end();
   }
@@ -314,6 +334,7 @@ async function handleApi(request, response) {
   if (command === "restore_mindmap") {
     const src = mindmapTrashPath(body.id);
     const dst = mindmapPath(body.id);
+    if (existsSync(dst)) throw new Error("A mindmap with this id already exists");
     await rename(src, dst);
     const raw = await readFile(dst, "utf8");
     return sendJson(response, JSON.parse(raw));

@@ -3,6 +3,7 @@
 mod mindmap;
 mod notes;
 mod settings;
+mod storage;
 
 use mindmap::Mindmap;
 use notes::Note;

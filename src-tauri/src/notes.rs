@@ -1,3 +1,4 @@
+use crate::storage::atomic_write_text;
 use serde::Serialize;
 use std::{
     cmp::Reverse,
@@ -140,7 +141,9 @@ fn list_notes_in(dir: &Path) -> Result<Vec<Note>, String> {
         }
         if let Some(raw_id) = path.file_stem().and_then(|stem| stem.to_str()) {
             let id = raw_id.to_string();
-            if validate_note_id(&id).is_err() { continue; }
+            if validate_note_id(&id).is_err() {
+                continue;
+            }
             if let Ok(note) = read_note_from(&path, &id) {
                 notes.push(note);
             }
@@ -189,7 +192,7 @@ pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, Strin
     let ts = now_millis()?;
     let resolved = resolve_title(title)?;
     let path = note_path(app_data, &id)?;
-    fs::write(path, serialize_note(&resolved, "")).map_err(|e| e.to_string())?;
+    atomic_write_text(&path, &serialize_note(&resolved, ""))?;
     Ok(Note {
         id,
         title: resolved,
@@ -198,15 +201,10 @@ pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, Strin
     })
 }
 
-pub fn save_note(
-    app_data: &Path,
-    id: String,
-    title: String,
-    body: String,
-) -> Result<Note, String> {
+pub fn save_note(app_data: &Path, id: String, title: String, body: String) -> Result<Note, String> {
     validate_note_content(&title, &body)?;
     let path = note_path(app_data, &id)?;
-    fs::write(path, serialize_note(&title, &body)).map_err(|e| e.to_string())?;
+    atomic_write_text(&path, &serialize_note(&title, &body))?;
     Ok(Note {
         id,
         title,
@@ -222,6 +220,9 @@ pub fn delete_note(app_data: &Path, id: &str) -> Result<(), String> {
         return Ok(());
     }
     let dst = trash_dir(app_data).join(format!("{id}.md"));
+    if dst.exists() {
+        return Err("A trashed note with this id already exists".into());
+    }
     // Ensure trash dir exists
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| e.to_string())?;
     fs::rename(&src, &dst).map_err(|e| e.to_string())
@@ -238,17 +239,22 @@ pub fn list_trash(app_data: &Path) -> Result<Vec<Note>, String> {
 
 /// Restore a note from trash/ back to notes/
 pub fn restore_note(app_data: &Path, id: &str) -> Result<Note, String> {
+    validate_note_id(id)?;
     let src = trash_dir(app_data).join(format!("{id}.md"));
     if !src.exists() {
         return Err("Note not found in trash".into());
     }
     let dst = notes_dir(app_data).join(format!("{id}.md"));
+    if dst.exists() {
+        return Err("A note with this id already exists".into());
+    }
     fs::rename(&src, &dst).map_err(|e| e.to_string())?;
     read_note_from(&note_path(app_data, id)?, id)
 }
 
 /// Permanently delete a note from trash
 pub fn delete_permanently(app_data: &Path, id: &str) -> Result<(), String> {
+    validate_note_id(id)?;
     let path = trash_dir(app_data).join(format!("{id}.md"));
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;

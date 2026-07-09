@@ -363,6 +363,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
 }
 
 .mode-toolbar {
+  align-items: center;
   padding: 3px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -397,6 +398,27 @@ input::placeholder, textarea::placeholder { color: var(--color-text-placeholder)
   margin: 0 4px;
   background: var(--color-border);
   align-self: center;
+}
+
+.save-status {
+  max-width: 190px;
+  min-height: 20px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-dim);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.save-status:empty {
+  display: none;
+}
+
+.save-status.failed {
+  color: var(--danger);
+  white-space: normal;
 }
 
 /* ── Trash ── */

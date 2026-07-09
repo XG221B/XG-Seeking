@@ -1,3 +1,4 @@
+use crate::storage::atomic_write_text;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
@@ -107,7 +108,7 @@ pub fn create_mindmap(app_data: &Path, title: Option<String>) -> Result<Mindmap,
     };
     let path = mindmap_path(app_data, &id)?;
     let raw = serde_json::to_string(&mm).map_err(|e| e.to_string())?;
-    fs::write(path, raw).map_err(|e| e.to_string())?;
+    atomic_write_text(&path, &raw)?;
     Ok(mm)
 }
 
@@ -117,7 +118,7 @@ pub fn save_mindmap(app_data: &Path, mm: Mindmap) -> Result<Mindmap, String> {
     validate_title(&saved.title)?;
     saved.updated_at = now_millis()?;
     let raw = serde_json::to_string(&saved).map_err(|e| e.to_string())?;
-    fs::write(path, raw).map_err(|e| e.to_string())?;
+    atomic_write_text(&path, &raw)?;
     Ok(saved)
 }
 
@@ -127,6 +128,9 @@ pub fn delete_mindmap(app_data: &Path, id: &str) -> Result<(), String> {
         return Ok(());
     }
     let dst = trash_dir(app_data).join(format!("{id}.json"));
+    if dst.exists() {
+        return Err("A trashed mindmap with this id already exists".into());
+    }
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| e.to_string())?;
     fs::rename(&src, &dst).map_err(|e| e.to_string())
 }
@@ -159,17 +163,22 @@ fn list_mindmaps_in(dir: &Path) -> Result<Vec<Mindmap>, String> {
 }
 
 pub fn restore_mindmap(app_data: &Path, id: &str) -> Result<Mindmap, String> {
+    validate_id(id)?;
     let src = trash_dir(app_data).join(format!("{id}.json"));
     if !src.exists() {
         return Err("Mindmap not found in trash".into());
     }
     let dst = mindmaps_dir(app_data).join(format!("{id}.json"));
+    if dst.exists() {
+        return Err("A mindmap with this id already exists".into());
+    }
     fs::rename(&src, &dst).map_err(|e| e.to_string())?;
     let raw = fs::read_to_string(&dst).map_err(|e| e.to_string())?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
 pub fn delete_permanently(app_data: &Path, id: &str) -> Result<(), String> {
+    validate_id(id)?;
     let path = trash_dir(app_data).join(format!("{id}.json"));
     if path.exists() {
         fs::remove_file(path).map_err(|e| e.to_string())?;
