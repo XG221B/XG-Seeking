@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fixed Windows/Tauri save failures that showed `Access is denied (os error 5)` when creating notes, creating mindmaps, or switching pages after edits.
+- Kept the safer temp-file write path while making post-rename file synchronization best-effort on Windows.
+
 ## 0.2.0
 
 - Clarified the app direction as local-first Markdown notes with Edit and Preview modes.

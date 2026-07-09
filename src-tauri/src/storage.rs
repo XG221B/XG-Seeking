@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::Write,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
@@ -42,8 +42,8 @@ pub fn atomic_write_text(path: &Path, contents: &str) -> Result<(), String> {
         return Err(error.to_string());
     }
 
-    if let Ok(file) = File::open(path) {
-        file.sync_all().map_err(|e| e.to_string())?;
+    if let Ok(file) = OpenOptions::new().read(true).write(true).open(path) {
+        let _ = file.sync_all();
     }
 
     if backup.exists() {
@@ -51,4 +51,32 @@ pub fn atomic_write_text(path: &Path, contents: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::atomic_write_text;
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn atomic_write_text_creates_and_replaces_file() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let dir = env::temp_dir().join(format!("xg-seeking-storage-test-{stamp}"));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+
+        atomic_write_text(&path, "first").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "first");
+
+        atomic_write_text(&path, "second").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
