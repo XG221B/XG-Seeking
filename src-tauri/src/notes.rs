@@ -1,4 +1,4 @@
-use crate::storage::atomic_write_text;
+use crate::storage::{atomic_write_text, sha256_hex};
 use serde::Serialize;
 use std::{
     cmp::Reverse,
@@ -7,13 +7,14 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
     pub id: String,
     pub title: String,
     pub body: String,
     pub updated_at: u64,
+    pub revision: String,
 }
 
 fn notes_dir(app_data: &Path) -> PathBuf {
@@ -43,13 +44,10 @@ fn validate_note_id(id: &str) -> Result<(), String> {
 
 fn note_path(app_data: &Path, id: &str) -> Result<PathBuf, String> {
     validate_note_id(id)?;
-    // Canonicalize the directory (catches symlink tricks), then join the safe id.
-    // File may not exist yet (e.g. during create), so only canonicalize the dir.
     let dir = notes_dir(app_data)
         .canonicalize()
         .map_err(|e| e.to_string())?;
     let path = dir.join(format!("{id}.md"));
-    // Defense-in-depth: joined path must stay under notes_dir
     if !path.starts_with(&dir) {
         return Err("Path traversal denied".into());
     }
@@ -100,6 +98,7 @@ fn parse_note(id: String, markdown: String, updated_at: u64) -> Note {
             title,
             body,
             updated_at,
+            revision: String::new(),
         }
     } else {
         Note {
@@ -107,6 +106,7 @@ fn parse_note(id: String, markdown: String, updated_at: u64) -> Note {
             title: "未命名想法".into(),
             body: normalized,
             updated_at,
+            revision: String::new(),
         }
     }
 }
@@ -127,14 +127,25 @@ fn serialize_note(title: &str, body: &str) -> String {
 }
 
 fn read_note_from(path: &Path, id: &str) -> Result<Note, String> {
-    let markdown = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    Ok(parse_note(id.into(), markdown, modified_millis(path)?))
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let revision = sha256_hex(&bytes);
+    let markdown = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let mut note = parse_note(id.into(), markdown, modified_millis(path)?);
+    note.revision = revision;
+    Ok(note)
 }
 
 fn list_notes_in(dir: &Path) -> Result<Vec<Note>, String> {
     let mut notes = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => return Err(e.to_string()),
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
             continue;
@@ -153,20 +164,14 @@ fn list_notes_in(dir: &Path) -> Result<Vec<Note>, String> {
     Ok(notes)
 }
 
-// ── Public API ──
-
-pub fn list_notes(app_data: &Path) -> Result<Vec<Note>, String> {
-    list_notes_in(&notes_dir(app_data))
-}
-
 const MAX_TITLE_LEN: usize = 500;
 const MAX_BODY_LEN: usize = 100_000;
 
 fn validate_note_content(title: &str, body: &str) -> Result<(), String> {
-    if title.len() > MAX_TITLE_LEN {
+    if title.chars().count() > MAX_TITLE_LEN {
         return Err(format!("Title too long (max {MAX_TITLE_LEN} chars)"));
     }
-    if body.len() > MAX_BODY_LEN {
+    if body.chars().count() > MAX_BODY_LEN {
         return Err(format!("Body too long (max {MAX_BODY_LEN} chars)"));
     }
     Ok(())
@@ -187,48 +192,81 @@ fn resolve_title(title: Option<String>) -> Result<String, String> {
     Ok(resolved)
 }
 
+pub fn list_notes(app_data: &Path) -> Result<Vec<Note>, String> {
+    list_notes_in(&notes_dir(app_data))
+}
+
 pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let ts = now_millis()?;
     let resolved = resolve_title(title)?;
     let path = note_path(app_data, &id)?;
-    atomic_write_text(&path, &serialize_note(&resolved, ""))?;
+    let content = serialize_note(&resolved, "");
+    let revision = sha256_hex(content.as_bytes());
+    atomic_write_text(&path, &content)?;
     Ok(Note {
         id,
         title: resolved,
         body: String::new(),
         updated_at: ts,
+        revision,
     })
 }
 
-pub fn save_note(app_data: &Path, id: String, title: String, body: String) -> Result<Note, String> {
-    validate_note_content(&title, &body)?;
-    let path = note_path(app_data, &id)?;
-    atomic_write_text(&path, &serialize_note(&title, &body))?;
+pub fn save_note(
+    app_data: &Path,
+    id: String,
+    title: String,
+    body: String,
+    expected_revision: Option<String>,
+) -> Result<Note, String> {
+    if let Err(e) = validate_note_content(&title, &body) {
+        return Err(format!("VALIDATION:{}", e));
+    }
+    let path = note_path(app_data, &id).map_err(|e| format!("VALIDATION:{}", e))?;
+    if let Some(ref expected) = expected_revision {
+        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
+        let current = sha256_hex(&bytes);
+        if current != *expected {
+            return Err(format!("CONFLICT:{}", current));
+        }
+    }
+    let content = serialize_note(&title, &body);
+    let revision = sha256_hex(content.as_bytes());
+    atomic_write_text(&path, &content).map_err(|e| format!("IO:{}", e))?;
     Ok(Note {
         id,
         title,
         body,
-        updated_at: now_millis()?,
+        updated_at: now_millis().map_err(|e| format!("IO:{}", e))?,
+        revision,
     })
 }
 
-/// Soft-delete: move the note from notes/ to trash/
-pub fn delete_note(app_data: &Path, id: &str) -> Result<(), String> {
-    let src = note_path(app_data, id)?;
+pub fn delete_note(
+    app_data: &Path,
+    id: &str,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    let src = note_path(app_data, id).map_err(|e| format!("VALIDATION:{}", e))?;
+    if let Some(ref expected) = expected_revision {
+        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
+        let current = sha256_hex(&bytes);
+        if current != *expected {
+            return Err(format!("CONFLICT:{}", current));
+        }
+    }
     if !src.exists() {
         return Ok(());
     }
     let dst = trash_dir(app_data).join(format!("{id}.md"));
     if dst.exists() {
-        return Err("A trashed note with this id already exists".into());
+        return Err("VALIDATION:A trashed note with this id already exists".to_string());
     }
-    // Ensure trash dir exists
-    fs::create_dir_all(trash_dir(app_data)).map_err(|e| e.to_string())?;
-    fs::rename(&src, &dst).map_err(|e| e.to_string())
+    fs::create_dir_all(trash_dir(app_data)).map_err(|e| format!("IO:{}", e))?;
+    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
 }
 
-/// List notes currently in trash
 pub fn list_trash(app_data: &Path) -> Result<Vec<Note>, String> {
     let dir = trash_dir(app_data);
     if !dir.exists() {
@@ -237,27 +275,248 @@ pub fn list_trash(app_data: &Path) -> Result<Vec<Note>, String> {
     list_notes_in(&dir)
 }
 
-/// Restore a note from trash/ back to notes/
-pub fn restore_note(app_data: &Path, id: &str) -> Result<Note, String> {
-    validate_note_id(id)?;
+pub fn restore_note(
+    app_data: &Path,
+    id: &str,
+    expected_revision: Option<String>,
+) -> Result<Note, String> {
+    validate_note_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let src = trash_dir(app_data).join(format!("{id}.md"));
+    if let Some(ref expected) = expected_revision {
+        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
+        let current = sha256_hex(&bytes);
+        if current != *expected {
+            return Err(format!("CONFLICT:{}", current));
+        }
+    }
     if !src.exists() {
-        return Err("Note not found in trash".into());
+        return Err("NOT_FOUND:Note not found in trash".to_string());
     }
     let dst = notes_dir(app_data).join(format!("{id}.md"));
     if dst.exists() {
-        return Err("A note with this id already exists".into());
+        return Err("VALIDATION:A note with this id already exists".to_string());
     }
-    fs::rename(&src, &dst).map_err(|e| e.to_string())?;
-    read_note_from(&note_path(app_data, id)?, id)
+    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))?;
+    read_note_from(
+        &note_path(app_data, id).map_err(|e| format!("VALIDATION:{}", e))?,
+        id,
+    )
+    .map_err(|e| format!("IO:{}", e))
 }
 
-/// Permanently delete a note from trash
-pub fn delete_permanently(app_data: &Path, id: &str) -> Result<(), String> {
-    validate_note_id(id)?;
+pub fn delete_permanently(
+    app_data: &Path,
+    id: &str,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    validate_note_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let path = trash_dir(app_data).join(format!("{id}.md"));
+    if let Some(ref expected) = expected_revision {
+        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
+        let current = sha256_hex(&bytes);
+        if current != *expected {
+            return Err(format!("CONFLICT:{}", current));
+        }
+    }
     if path.exists() {
-        fs::remove_file(path).map_err(|e| e.to_string())?;
+        fs::remove_file(path).map_err(|e| format!("IO:{}", e))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        env, fs,
+        sync::atomic::{AtomicU64, Ordering},
+        thread,
+        time::Duration,
+    };
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn test_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let ctr = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        env::temp_dir().join(format!("xg-seeking-test-{name}-{stamp}-{ctr}"))
+    }
+
+    fn setup_dirs() -> PathBuf {
+        let dir = test_dir("notes");
+        fs::create_dir_all(&dir).unwrap();
+        ensure_dirs(&dir).unwrap();
+        dir
+    }
+
+    fn clean_dir(dir: &Path) {
+        for _ in 0..5 {
+            if fs::remove_dir_all(dir).is_ok() {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn revision_is_computed_and_returned() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Revision".into())).unwrap();
+        assert!(!note.revision.is_empty());
+        assert_eq!(note.revision.len(), 64);
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn revision_changes_after_save() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_RevChange".into())).unwrap();
+        let rev1 = note.revision.clone();
+
+        let saved = save_note(
+            &dir,
+            note.id.clone(),
+            "AI_TEST_RevChange".into(),
+            "new body".into(),
+            None,
+        )
+        .unwrap();
+        assert_ne!(saved.revision, rev1);
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn save_with_matching_revision_succeeds() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Match".into())).unwrap();
+        let rev = note.revision.clone();
+
+        let result = save_note(
+            &dir,
+            note.id.clone(),
+            "AI_TEST_Match".into(),
+            "updated".into(),
+            Some(rev),
+        );
+        assert!(result.is_ok());
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn save_with_mismatched_revision_returns_conflict() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Mismatch".into())).unwrap();
+
+        let result = save_note(
+            &dir,
+            note.id.clone(),
+            "AI_TEST_Mismatch".into(),
+            "updated".into(),
+            Some("0000000000000000000000000000000000000000000000000000000000000000".into()),
+        );
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.starts_with("CONFLICT:"));
+        assert!(err.contains(&note.revision));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn save_with_not_found_revision() {
+        let dir = setup_dirs();
+        let result = save_note(
+            &dir,
+            "AI_TEST_nonexistent".into(),
+            "Title".into(),
+            "body".into(),
+            Some("abc123".into()),
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.starts_with("NOT_FOUND:"));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn delete_revision_conflict() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_DelConflict".into())).unwrap();
+
+        let result = delete_note(
+            &dir,
+            &note.id,
+            Some("0000000000000000000000000000000000000000000000000000000000000000".into()),
+        );
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.starts_with("CONFLICT:"));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn unicode_title_length_uses_code_points() {
+        let dir = setup_dirs();
+        let emoji_title = "🌟".repeat(10);
+        assert!(emoji_title.len() > 10);
+        assert_eq!(emoji_title.chars().count(), 10);
+
+        let note = create_note(&dir, Some(emoji_title)).unwrap();
+        assert_eq!(note.title.chars().count(), 10);
+
+        let long_emoji = "🌟".repeat(600);
+        let result = create_note(&dir, Some(long_emoji));
+        assert!(result.is_err());
+
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn cjk_title_validation() {
+        let dir = setup_dirs();
+        let cjk_title = "我".repeat(400);
+        assert!(cjk_title.len() <= 500 * 3);
+        assert_eq!(cjk_title.chars().count(), 400);
+
+        let note = create_note(&dir, Some(cjk_title.clone())).unwrap();
+        assert_eq!(note.title, cjk_title);
+
+        let too_long = "我".repeat(600);
+        let result = create_note(&dir, Some(too_long));
+        assert!(result.is_err());
+
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn list_continues_on_bad_file() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Good".into())).unwrap();
+
+        let bad_path = notes_dir(&dir).join("AI_TEST_badfile.md");
+        fs::write(&bad_path, b"\xFF\xFE invalid utf8").unwrap();
+
+        let notes = list_notes(&dir).unwrap();
+        assert!(notes.iter().any(|n| n.id == note.id));
+        assert!(notes.iter().all(|n| n.id != "AI_TEST_badfile"));
+
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn validation_error_has_prefix() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Valid".into())).unwrap();
+        let rev = note.revision.clone();
+
+        let long_title = "A".repeat(600);
+        let result = save_note(&dir, note.id, long_title, "body".into(), Some(rev));
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.starts_with("VALIDATION:"));
+
+        clean_dir(&dir);
+    }
 }

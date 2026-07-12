@@ -18,7 +18,18 @@ fn app_data(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-// ── Notes ──
+fn recover_on_startup(app: &AppHandle) {
+    if let Ok(dir) = app.path().app_data_dir() {
+        let dirs = vec![
+            dir.join("notes"),
+            dir.join("trash"),
+            dir.join("mindmaps"),
+            dir.join("mindmaps_trash"),
+        ];
+        storage::recover_bak_files(&dirs);
+        storage::cleanup_tmp_files(&dirs);
+    }
+}
 
 #[tauri::command]
 fn list_notes(app: AppHandle) -> Result<Vec<Note>, String> {
@@ -31,13 +42,23 @@ fn create_note(app: AppHandle, title: Option<String>) -> Result<Note, String> {
 }
 
 #[tauri::command]
-fn save_note(app: AppHandle, id: String, title: String, body: String) -> Result<Note, String> {
-    notes::save_note(&app_data(&app)?, id, title, body)
+fn save_note(
+    app: AppHandle,
+    id: String,
+    title: String,
+    body: String,
+    expected_revision: Option<String>,
+) -> Result<Note, String> {
+    notes::save_note(&app_data(&app)?, id, title, body, expected_revision)
 }
 
 #[tauri::command]
-fn delete_note(app: AppHandle, id: String) -> Result<(), String> {
-    notes::delete_note(&app_data(&app)?, &id)
+fn delete_note(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    notes::delete_note(&app_data(&app)?, &id, expected_revision)
 }
 
 #[tauri::command]
@@ -46,16 +67,22 @@ fn list_trash(app: AppHandle) -> Result<Vec<Note>, String> {
 }
 
 #[tauri::command]
-fn restore_note(app: AppHandle, id: String) -> Result<Note, String> {
-    notes::restore_note(&app_data(&app)?, &id)
+fn restore_note(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<Note, String> {
+    notes::restore_note(&app_data(&app)?, &id, expected_revision)
 }
 
 #[tauri::command]
-fn delete_permanently(app: AppHandle, id: String) -> Result<(), String> {
-    notes::delete_permanently(&app_data(&app)?, &id)
+fn delete_permanently(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    notes::delete_permanently(&app_data(&app)?, &id, expected_revision)
 }
-
-// ── Mindmaps ──
 
 #[tauri::command]
 fn list_mindmaps(app: AppHandle) -> Result<Vec<Mindmap>, String> {
@@ -68,13 +95,21 @@ fn create_mindmap(app: AppHandle, title: Option<String>) -> Result<Mindmap, Stri
 }
 
 #[tauri::command]
-fn save_mindmap(app: AppHandle, mm: Mindmap) -> Result<Mindmap, String> {
-    mindmap::save_mindmap(&app_data(&app)?, mm)
+fn save_mindmap(
+    app: AppHandle,
+    mm: Mindmap,
+    expected_revision: Option<String>,
+) -> Result<Mindmap, String> {
+    mindmap::save_mindmap(&app_data(&app)?, mm, expected_revision)
 }
 
 #[tauri::command]
-fn delete_mindmap(app: AppHandle, id: String) -> Result<(), String> {
-    mindmap::delete_mindmap(&app_data(&app)?, &id)
+fn delete_mindmap(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    mindmap::delete_mindmap(&app_data(&app)?, &id, expected_revision)
 }
 
 #[tauri::command]
@@ -83,16 +118,22 @@ fn list_mindmap_trash(app: AppHandle) -> Result<Vec<Mindmap>, String> {
 }
 
 #[tauri::command]
-fn restore_mindmap(app: AppHandle, id: String) -> Result<Mindmap, String> {
-    mindmap::restore_mindmap(&app_data(&app)?, &id)
+fn restore_mindmap(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<Mindmap, String> {
+    mindmap::restore_mindmap(&app_data(&app)?, &id, expected_revision)
 }
 
 #[tauri::command]
-fn delete_mindmap_permanently(app: AppHandle, id: String) -> Result<(), String> {
-    mindmap::delete_permanently(&app_data(&app)?, &id)
+fn delete_mindmap_permanently(
+    app: AppHandle,
+    id: String,
+    expected_revision: Option<String>,
+) -> Result<(), String> {
+    mindmap::delete_permanently(&app_data(&app)?, &id, expected_revision)
 }
-
-// ── Settings ──
 
 #[tauri::command]
 fn get_settings(app: AppHandle) -> Result<Settings, String> {
@@ -111,6 +152,10 @@ fn set_window_title(window: WebviewWindow, title: String) -> Result<(), String> 
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            recover_on_startup(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_notes,
             create_note,

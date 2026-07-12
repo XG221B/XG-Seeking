@@ -228,10 +228,11 @@ async function validationAndSafety() {
 }
 
 async function sourceSafetyChecks() {
-  const source = await readFile(join(root, "src", "main.js"), "utf8");
-  assert(source.includes("escapeHtml(value)"), "Markdown preview no longer escapes HTML before rendering");
-  assert(source.includes("isSafeMarkdownUrl"), "Markdown link safety check missing");
-  assert(source.includes('rel="noreferrer"'), "External preview links lost safe rel attribute");
+  const mainSource = await readFile(join(root, "src", "main.js"), "utf8");
+  const markdownSource = await readFile(join(root, "src", "markdown.js"), "utf8");
+  assert(markdownSource.includes("escapeHtml"), "Markdown preview no longer imports escapeHtml");
+  assert(markdownSource.includes("isSafeMarkdownUrl"), "Markdown link safety check missing");
+  assert(markdownSource.includes('rel="noreferrer"'), "External preview links lost safe rel attribute");
 }
 
 async function noTempBackupLeftovers() {

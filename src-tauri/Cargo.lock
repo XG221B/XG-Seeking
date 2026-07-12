@@ -4302,6 +4302,7 @@ version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "uuid",
