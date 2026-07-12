@@ -203,10 +203,8 @@ const state = {
   mindmapSaveStatus: "",
 };
 
-let autoSaveTimer = 0;
 let pageLoadToken = 0;
 const noteSaveQueue = new Map();
-let noteSaveSeq = 0;
 
 // ── Markdown preview ──
 
@@ -304,11 +302,124 @@ function isEditorTarget(target) {
   return Boolean(target?.closest?.("#body"));
 }
 
+function generateId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function syncEditorToNote() {
   const body = document.getElementById("body");
   const note = selectedNote();
   if (!body || !note) return;
   note.body = editorValueToBody(body.value);
+}
+
+// ── Per-item save coordinator ──
+
+const noteCoords = new Map();
+const mindmapCoords = new Map();
+
+function getNoteCoord(id) {
+  let c = noteCoords.get(id);
+  if (!c) {
+    c = { draft: null, dirty: false, timer: 0, status: "", seq: 0, deleted: false };
+    noteCoords.set(id, c);
+  }
+  return c;
+}
+
+function getMindmapCoord(id) {
+  let c = mindmapCoords.get(id);
+  if (!c) {
+    c = { draft: null, dirty: false, timer: 0, status: "", seq: 0, deleted: false };
+    mindmapCoords.set(id, c);
+  }
+  return c;
+}
+
+function snapshotCurrentNote() {
+  const id = state.selectedId;
+  if (!id || state.showTrash) return null;
+  const titleField = document.getElementById("title");
+  const bodyField = document.getElementById("body");
+  if (!titleField) return null;
+  return {
+    id,
+    title: titleField.value,
+    body: bodyField ? editorValueToBody(bodyField.value) : "",
+  };
+}
+
+function snapshotCurrentMindmap() {
+  const mm = getCurrentMindmap();
+  if (!mm) return null;
+  return JSON.parse(JSON.stringify(mm));
+}
+
+function updateNoteCoordStatus(id, status) {
+  const c = getNoteCoord(id);
+  c.status = status;
+  if (state.selectedId === id) {
+    state.noteSaveStatus = status;
+    const el = document.getElementById("noteSaveStatus");
+    if (el) {
+      el.textContent = saveStatusText(status);
+      el.classList.toggle("failed", status === "failed");
+    }
+  }
+}
+
+function updateMindmapCoordStatus(id, status) {
+  const c = getMindmapCoord(id);
+  c.status = status;
+  if (state.selectedMindmapId === id) {
+    state.mindmapSaveStatus = status;
+    const el = document.getElementById("mindmapSaveStatus");
+    if (el) {
+      el.textContent = saveStatusText(status);
+      el.classList.toggle("failed", status === "failed");
+    }
+  }
+}
+
+function syncNoteCoordToDisplay() {
+  const id = state.selectedId;
+  if (!id || state.showTrash) {
+    state.noteSaveStatus = "";
+    const el = document.getElementById("noteSaveStatus");
+    if (el) { el.textContent = ""; el.classList.remove("failed"); }
+    return;
+  }
+  const c = getNoteCoord(id);
+  state.noteSaveStatus = c.status;
+  const el = document.getElementById("noteSaveStatus");
+  if (el) {
+    el.textContent = saveStatusText(c.status);
+    el.classList.toggle("failed", c.status === "failed");
+  }
+}
+
+function syncMindmapCoordToDisplay() {
+  const id = state.selectedMindmapId;
+  if (!id || state.showMindmapTrash) {
+    state.mindmapSaveStatus = "";
+    const el = document.getElementById("mindmapSaveStatus");
+    if (el) { el.textContent = ""; el.classList.remove("failed"); }
+    return;
+  }
+  const c = getMindmapCoord(id);
+  state.mindmapSaveStatus = c.status;
+  const el = document.getElementById("mindmapSaveStatus");
+  if (el) {
+    el.textContent = saveStatusText(c.status);
+    el.classList.toggle("failed", c.status === "failed");
+  }
 }
 
 // ── Helpers ──
@@ -363,18 +474,30 @@ async function setPage(page) {
   const token = ++pageLoadToken;
   const previousPage = state.page;
   if (state.page === "notes" && !state.showTrash) {
-    clearTimeout(autoSaveTimer);
-    syncEditorToNote();
-    const saved = await saveNote({ showAlert: true });
-    if (!saved) return;
+    if (state.selectedId) {
+      const note = selectedNote();
+      if (note) {
+        const titleField = document.getElementById("title");
+        const bodyField = document.getElementById("body");
+        if (titleField) note.title = titleField.value || t("untitled");
+        if (bodyField) note.body = editorValueToBody(bodyField.value);
+      }
+      const saved = await flushNoteSave(state.selectedId);
+      if (!saved) {
+        alert(t("saveFailed"));
+        return;
+      }
+    }
   }
 
   if (state.page === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
     if (mm) {
-      clearTimeout(mindmapSaveTimer);
-      const saved = await saveMindmap(mm, { showAlert: true });
-      if (!saved) return;
+      const saved = await flushMindmapSave(mm.id);
+      if (!saved) {
+        alert(t("saveFailed"));
+        return;
+      }
     }
   }
   state.page = page;
@@ -519,8 +642,20 @@ function updateSearchFeedback(prefix) {
 
 function bindListEvents() {
   Array.from(document.querySelectorAll(".item")).forEach((button) => {
-    button.addEventListener("click", () => {
-      selectNote(button.dataset.id);
+    button.addEventListener("click", async () => {
+      const targetId = button.dataset.id;
+      if (targetId === state.selectedId) return;
+      if (state.selectedId && !state.showTrash) {
+        const note = selectedNote();
+        if (note) {
+          const titleField = document.getElementById("title");
+          const bodyField = document.getElementById("body");
+          if (titleField) note.title = titleField.value || t("untitled");
+          if (bodyField) note.body = editorValueToBody(bodyField.value);
+          await flushNoteSave(state.selectedId);
+        }
+      }
+      selectNote(targetId);
       renderNotes();
     });
   });
@@ -560,6 +695,7 @@ function renderTrashFooter() {
 }
 
 function renderNotes() {
+  syncNoteCoordToDisplay();
   const selected = state.showTrash
     ? state.trashNotes.find((note) => note.id === state.selectedId)
     : state.notes.find((note) => note.id === state.selectedId);
@@ -715,15 +851,15 @@ function bindNotesEvents() {
   if (!state.showTrash) bindEditorAutoSave();
 }
 
-function switchNoteMode(sourceMode) {
+async function switchNoteMode(sourceMode) {
   const titleEl = document.getElementById("title");
   const bodyEl = document.getElementById("body");
   const note = selectedNote();
   if (note && titleEl) note.title = titleEl.value || t("untitled");
   if (note && bodyEl) note.body = editorValueToBody(bodyEl.value);
+  if (note) await flushNoteSave(note.id);
   state.sourceMode = sourceMode;
   renderNotes();
-  scheduleAutoSave();
 }
 
 function bindMarkdownTools() {
@@ -781,17 +917,21 @@ function bindEditorAutoSave() {
 
   title.addEventListener("input", () => {
     const note = selectedNote();
-    if (note) note.title = title.value || t("untitled");
-    const activeTitle = document.querySelector(".note-row.active strong");
-    if (activeTitle) activeTitle.textContent = title.value || t("untitled");
-    scheduleAutoSave();
+    if (note) {
+      note.title = title.value || t("untitled");
+      const activeTitle = document.querySelector(".note-row.active strong");
+      if (activeTitle) activeTitle.textContent = title.value || t("untitled");
+      scheduleNoteSave(note.id);
+    }
   });
 
   if (body) {
     body.addEventListener("input", () => {
       const note = selectedNote();
-      if (note) note.body = editorValueToBody(body.value);
-      scheduleAutoSave();
+      if (note) {
+        note.body = editorValueToBody(body.value);
+        scheduleNoteSave(note.id);
+      }
     });
   }
 }
@@ -876,7 +1016,11 @@ async function toggleTrashView() {
   }
 }
 
+let creatingNote = false;
+
 async function createNote() {
+  if (creatingNote) return;
+  creatingNote = true;
   pageLoadToken += 1;
   try {
     const note = await invoke("create_note", { title: t("untitled") });
@@ -885,12 +1029,9 @@ async function createNote() {
     renderNotes();
   } catch (error) {
     alert(`${t("loadFailed")}: ${error}`);
+  } finally {
+    creatingNote = false;
   }
-}
-
-function scheduleAutoSave() {
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(saveNote, 500);
 }
 
 function saveStatusText(status) {
@@ -926,63 +1067,90 @@ async function waitForNoteSaves(id) {
   await save.catch(() => {});
 }
 
-async function saveNote(options = {}) {
-  if (!state.selectedId || state.showTrash) return true;
-  const titleField = document.getElementById("title");
-  const bodyField = document.getElementById("body");
-  if (!titleField) return true;
-  const currentNote = selectedNote();
+function scheduleNoteSave(id) {
+  const c = getNoteCoord(id);
+  if (c.deleted) return;
+  c.dirty = true;
+  clearTimeout(c.timer);
+  c.timer = setTimeout(() => flushNoteSave(id).catch(() => {}), 500);
+}
 
-  const id = state.selectedId;
-  const payload = {
-    id,
-    title: titleField.value,
-    body: bodyField ? editorValueToBody(bodyField.value) : currentNote?.body || "",
-  };
+async function flushNoteSave(id) {
+  const c = getNoteCoord(id);
+  if (c.deleted || !c.dirty) return true;
+  clearTimeout(c.timer);
 
-  let saved;
-  const seq = ++noteSaveSeq;
-  updateSaveStatus("note", "pending");
+  const note = state.notes.find((n) => n.id === id);
+  if (!note) return true;
+
+  const snapshot = { id, title: note.title, body: note.body };
+  c.draft = snapshot;
+
+  const seq = ++c.seq;
+  updateNoteCoordStatus(id, "pending");
   try {
-    saved = await queueById(noteSaveQueue, id, () => invoke("save_note", payload));
+    const saved = await queueById(noteSaveQueue, id, () => invoke("save_note", snapshot));
+    if (c.deleted) return true;
+    const existing = state.notes.find((n) => n.id === saved.id);
+    if (existing) {
+      existing.title = saved.title;
+      existing.body = saved.body;
+      existing.updatedAt = saved.updatedAt;
+    }
+    if (seq === c.seq) {
+      c.dirty = false;
+      updateNoteCoordStatus(id, "saved");
+      if (state.selectedId === id) {
+        const activeTime = document.querySelector(".note-row.active time");
+        if (activeTime) activeTime.textContent = formatDate(saved.updatedAt);
+        const activeTitle = document.querySelector(".note-row.active strong");
+        if (activeTitle) activeTitle.textContent = saved.title;
+      }
+      setTimeout(() => {
+        if (seq === c.seq && c.status === "saved") updateNoteCoordStatus(id, "");
+      }, 1400);
+    }
+    return true;
   } catch (error) {
-    if (seq === noteSaveSeq) updateSaveStatus("note", "failed");
-    if (options.showAlert) alert(`${t("saveFailed")}: ${error}`);
+    if (c.deleted) return true;
+    if (seq === c.seq) {
+      updateNoteCoordStatus(id, "failed");
+    }
     return false;
   }
+}
 
-  const note = state.notes.find((item) => item.id === saved.id);
-  if (note) {
-    note.title = saved.title;
-    note.body = saved.body;
-    note.updatedAt = saved.updatedAt;
-  }
-
-  if (state.selectedId === id) {
-    const activeTime = document.querySelector(".note-row.active time");
-    if (activeTime) activeTime.textContent = formatDate(saved.updatedAt);
-  }
-  if (seq === noteSaveSeq) {
-    updateSaveStatus("note", "saved");
-    setTimeout(() => {
-      if (seq === noteSaveSeq && state.noteSaveStatus === "saved") updateSaveStatus("note", "");
-    }, 1400);
-  }
-  return true;
+async function saveNote(options = {}) {
+  if (!state.selectedId || state.showTrash) return true;
+  const note = selectedNote();
+  if (!note) return true;
+  return flushNoteSave(state.selectedId).then((ok) => {
+    if (!ok && options.showAlert) alert(t("saveFailed"));
+    return ok;
+  });
 }
 
 async function trashNote(id) {
   if (!id) return;
-  clearTimeout(autoSaveTimer);
   if (id === state.selectedId) {
-    syncEditorToNote();
-    const saved = await saveNote({ showAlert: true });
-    if (!saved) return;
+    const note = selectedNote();
+    if (note) {
+      const titleField = document.getElementById("title");
+      const bodyField = document.getElementById("body");
+      if (titleField) note.title = titleField.value || t("untitled");
+      if (bodyField) note.body = editorValueToBody(bodyField.value);
+    }
+    const saved = await flushNoteSave(id);
+    if (!saved) { alert(t("saveFailed")); return; }
   }
+  const c = getNoteCoord(id);
+  c.deleted = true;
+  clearTimeout(c.timer);
   await waitForNoteSaves(id);
 
-  try { await invoke("delete_note", { id }); } catch (e) { alert(e); return; }
+  try { await invoke("delete_note", { id }); } catch (e) { alert(e); c.deleted = false; return; }
   state.notes = state.notes.filter((note) => note.id !== id);
+  noteCoords.delete(id);
   if (state.selectedId === id) selectNote(state.notes[0] ? state.notes[0].id : "");
   renderNotes();
 }
@@ -1029,6 +1197,7 @@ async function clearAllTrash() {
 // ── Mindmaps ──
 
 function renderMindmaps() {
+  syncMindmapCoordToDisplay();
   const source = state.showMindmapTrash ? state.mindmapTrash : state.mindmaps;
   const selected = source.find((m) => m.id === state.selectedMindmapId);
   const keyword = state.mindmapQuery.trim().toLowerCase();
@@ -1104,8 +1273,13 @@ function bindMindmapEvents() {
   document.getElementById("clearMindmapTrash")?.addEventListener("click", clearAllMindmapTrash);
 
   document.querySelectorAll(".mindmap-item").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.selectedMindmapId = btn.dataset.id;
+    btn.addEventListener("click", async () => {
+      const targetId = btn.dataset.id;
+      if (targetId === state.selectedMindmapId) return;
+      if (state.selectedMindmapId && !state.showMindmapTrash) {
+        await flushMindmapSave(state.selectedMindmapId);
+      }
+      state.selectedMindmapId = targetId;
       state.selectedNodeId = "";
       renderMindmaps();
     });
@@ -1315,8 +1489,7 @@ function toggleNode(nodes, id) {
 function addChildNode(mm) {
   const node = state.selectedNodeId ? findNodeInList(mm.nodes, state.selectedNodeId) : null;
   if (!node) {
-    // No node selected or not found — add top-level node
-    const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+    const newNode = { id: generateId(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
     mm.nodes.push(newNode);
     state.selectedNodeId = newNode.id;
     state.editingNode = true;
@@ -1324,7 +1497,7 @@ function addChildNode(mm) {
     renderMindmaps();
     return;
   }
-  const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+  const newNode = { id: generateId(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
   node.children.push(newNode);
   node.collapsed = false;
   state.selectedNodeId = newNode.id;
@@ -1335,11 +1508,9 @@ function addChildNode(mm) {
 
 function addSiblingNode(mm) {
   if (!state.selectedNodeId) return addChildNode(mm);
-  // Check if selected node is a top-level node
   const topIdx = mm.nodes.findIndex((n) => n.id === state.selectedNodeId);
   if (topIdx >= 0) {
-    // Top-level sibling
-    const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+    const newNode = { id: generateId(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
     mm.nodes.splice(topIdx + 1, 0, newNode);
     state.selectedNodeId = newNode.id;
     state.editingNode = true;
@@ -1347,11 +1518,10 @@ function addSiblingNode(mm) {
     renderMindmaps();
     return;
   }
-  // Nested sibling
   const parent = findParentInList(mm.nodes, state.selectedNodeId);
   if (!parent) return addChildNode(mm);
   const idx = parent.children.findIndex((c) => c.id === state.selectedNodeId);
-  const newNode = { id: "n" + Date.now(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
+  const newNode = { id: generateId(), text: t("mindmapNodeNew"), collapsed: false, children: [] };
   parent.children.splice(idx + 1, 0, newNode);
   state.selectedNodeId = newNode.id;
   state.editingNode = true;
@@ -1387,9 +1557,7 @@ function deleteNode(mm) {
   renderMindmaps();
 }
 
-let mindmapSaveTimer = 0;
 const mindmapSaveQueue = new Map();
-let mindmapSaveSeq = 0;
 
 async function waitForMindmapSaves(id) {
   const save = mindmapSaveQueue.get(id);
@@ -1398,8 +1566,48 @@ async function waitForMindmapSaves(id) {
 }
 
 function scheduleMindmapSave(mm) {
-  clearTimeout(mindmapSaveTimer);
-  mindmapSaveTimer = setTimeout(() => saveMindmap(mm), 500);
+  const c = getMindmapCoord(mm.id);
+  if (c.deleted) return;
+  c.dirty = true;
+  clearTimeout(c.timer);
+  c.draft = JSON.parse(JSON.stringify(mm));
+  c.timer = setTimeout(() => flushMindmapSave(mm.id).catch(() => {}), 500);
+}
+
+async function flushMindmapSave(id) {
+  const c = getMindmapCoord(id);
+  if (c.deleted || !c.dirty) return true;
+  clearTimeout(c.timer);
+
+  const snapshot = c.draft;
+  if (!snapshot) return true;
+
+  const seq = ++c.seq;
+  updateMindmapCoordStatus(id, "pending");
+  try {
+    const saved = await queueById(mindmapSaveQueue, id, () => invoke("save_mindmap", { mm: snapshot }));
+    if (c.deleted) return true;
+    const existing = state.mindmaps.find((item) => item.id === saved.id);
+    if (existing) {
+      existing.title = saved.title;
+      existing.updatedAt = saved.updatedAt;
+      existing.nodes = saved.nodes;
+    }
+    if (seq === c.seq) {
+      c.dirty = false;
+      updateMindmapCoordStatus(id, "saved");
+      setTimeout(() => {
+        if (seq === c.seq && c.status === "saved") updateMindmapCoordStatus(id, "");
+      }, 1400);
+    }
+    return true;
+  } catch (error) {
+    if (c.deleted) return true;
+    if (seq === c.seq) {
+      updateMindmapCoordStatus(id, "failed");
+    }
+    return false;
+  }
 }
 
 // ── Mindmap API ──
@@ -1429,50 +1637,46 @@ async function loadMindmapTrashSilent(token = pageLoadToken) {
   } catch {}
 }
 
+let creatingMindmap = false;
+
 async function createMindmap() {
+  if (creatingMindmap) return;
+  creatingMindmap = true;
   pageLoadToken += 1;
   let mm;
-  try { mm = await invoke("create_mindmap", { title: t("mindmapUntitled") }); } catch (e) { alert(e); return; }
+  try { mm = await invoke("create_mindmap", { title: t("mindmapUntitled") }); } catch (e) { alert(e); creatingMindmap = false; return; }
   state.mindmaps.unshift(mm);
   state.selectedMindmapId = mm.id;
   state.selectedNodeId = "";
   state.editingNode = false;
+  creatingMindmap = false;
   renderMindmaps();
 }
 
 async function saveMindmap(mm, options = {}) {
   if (!mm) return true;
-  const seq = ++mindmapSaveSeq;
-  updateSaveStatus("mindmap", "pending");
-  try {
-    const snapshot = JSON.parse(JSON.stringify(mm));
-    const saved = await queueById(mindmapSaveQueue, mm.id, () => invoke("save_mindmap", { mm: snapshot }));
-    const existing = state.mindmaps.find((item) => item.id === saved.id);
-    if (existing) existing.updatedAt = saved.updatedAt;
-  } catch (error) {
-    if (seq === mindmapSaveSeq) updateSaveStatus("mindmap", "failed");
-    if (options.showAlert) alert(`${t("saveFailed")}: ${error}`);
-    return false;
-  }
-  if (seq === mindmapSaveSeq) {
-    updateSaveStatus("mindmap", "saved");
-    setTimeout(() => {
-      if (seq === mindmapSaveSeq && state.mindmapSaveStatus === "saved") updateSaveStatus("mindmap", "");
-    }, 1400);
-  }
-  return true;
+  const c = getMindmapCoord(mm.id);
+  c.draft = JSON.parse(JSON.stringify(mm));
+  c.dirty = true;
+  return flushMindmapSave(mm.id).then((ok) => {
+    if (!ok && options.showAlert) alert(t("saveFailed"));
+    return ok;
+  });
 }
 
 async function trashMindmap(id) {
   const mm = state.mindmaps.find((item) => item.id === id);
   if (mm) {
-    clearTimeout(mindmapSaveTimer);
-    const saved = await saveMindmap(mm, { showAlert: true });
-    if (!saved) return;
+    const saved = await flushMindmapSave(id);
+    if (!saved) { alert(t("saveFailed")); return; }
   }
+  const c = getMindmapCoord(id);
+  c.deleted = true;
+  clearTimeout(c.timer);
   await waitForMindmapSaves(id);
-  try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); return; }
+  try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); c.deleted = false; return; }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
+  mindmapCoords.delete(id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
   await loadMindmapTrashSilent();
   renderMindmaps();
@@ -1516,6 +1720,46 @@ async function clearAllMindmapTrash() {
 }
 
 // ── Init ──
+
+async function flushAllDirty() {
+  const promises = [];
+  for (const [id, c] of noteCoords) {
+    if (c.dirty) {
+      const note = state.notes.find((n) => n.id === id);
+      if (note) {
+        const titleField = document.getElementById("title");
+        const bodyField = document.getElementById("body");
+        if (titleField && state.selectedId === id) {
+          note.title = titleField.value || t("untitled");
+          if (bodyField) note.body = editorValueToBody(bodyField.value);
+        }
+        clearTimeout(c.timer);
+        promises.push(flushNoteSave(id));
+      }
+    }
+  }
+  for (const [id, c] of mindmapCoords) {
+    if (c.dirty) {
+      clearTimeout(c.timer);
+      promises.push(flushMindmapSave(id));
+    }
+  }
+  await Promise.allSettled(promises);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    flushAllDirty();
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  flushAllDirty();
+});
+
+window.addEventListener("pagehide", () => {
+  flushAllDirty();
+});
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => setPage(button.dataset.page));

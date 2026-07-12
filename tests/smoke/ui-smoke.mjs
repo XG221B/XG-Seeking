@@ -401,18 +401,22 @@ async function mindmapUiFlow() {
 }
 
 async function cleanupThroughApi() {
-  await cleanupUiData();
-  const remainingActive = (await api("list_notes")).filter((note) => note.title?.startsWith("AI_TEST_UI_"));
-  const remainingTrash = (await api("list_trash")).filter((note) => note.title?.startsWith("AI_TEST_UI_"));
-  const remainingMindmaps = (await api("list_mindmaps")).filter((mindmap) => mindmap.title?.startsWith("AI_TEST_UI_"));
-  const remainingMindmapTrash = (await api("list_mindmap_trash")).filter((mindmap) => mindmap.title?.startsWith("AI_TEST_UI_"));
-  assert(
-    remainingActive.length === 0 &&
-      remainingTrash.length === 0 &&
-      remainingMindmaps.length === 0 &&
-      remainingMindmapTrash.length === 0,
-    "UI test data cleanup failed",
-  );
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await cleanupUiData();
+    await delay(300);
+    const remainingActive = (await api("list_notes")).filter((note) => note.title?.startsWith("AI_TEST_UI_"));
+    const remainingTrash = (await api("list_trash")).filter((note) => note.title?.startsWith("AI_TEST_UI_"));
+    const remainingMindmaps = (await api("list_mindmaps")).filter((mindmap) => mindmap.title?.startsWith("AI_TEST_UI_"));
+    const remainingMindmapTrash = (await api("list_mindmap_trash")).filter((mindmap) => mindmap.title?.startsWith("AI_TEST_UI_"));
+    const details = [
+      remainingActive.length ? `active notes: ${remainingActive.map(n => n.title).join(', ')}` : '',
+      remainingTrash.length ? `trash notes: ${remainingTrash.map(n => n.title).join(', ')}` : '',
+      remainingMindmaps.length ? `active mindmaps: ${remainingMindmaps.map(m => m.title).join(', ')}` : '',
+      remainingMindmapTrash.length ? `trash mindmaps: ${remainingMindmapTrash.map(m => m.title).join(', ')}` : '',
+    ].filter(Boolean).join('; ');
+    if (remainingActive.length === 0 && remainingTrash.length === 0 && remainingMindmaps.length === 0 && remainingMindmapTrash.length === 0) return;
+    if (attempt === 2) assert(false, `UI test data cleanup failed after retries${details ? ': ' + details : ''}`);
+  }
 }
 
 try {

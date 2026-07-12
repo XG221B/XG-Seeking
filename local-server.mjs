@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
@@ -242,7 +243,7 @@ async function handleApi(request, response) {
   if (command === "list_notes") return sendJson(response, await listNotes());
 
   if (command === "create_note") {
-    const id = `note-${nowMillis()}`;
+    const id = randomUUID();
     const title = resolveTitle(body?.title, DEFAULT_NOTE_TITLE);
     await atomicWriteText(notePath(id), serializeNote(title, ""));
     return sendJson(response, await readNote(id));
@@ -297,7 +298,7 @@ async function handleApi(request, response) {
   if (command === "list_mindmaps") return sendJson(response, await listMindmaps());
 
   if (command === "create_mindmap") {
-    const id = `mindmap-${nowMillis()}`;
+    const id = randomUUID();
     const title = resolveTitle(body?.title, DEFAULT_MINDMAP_TITLE);
     const mm = {
       id,

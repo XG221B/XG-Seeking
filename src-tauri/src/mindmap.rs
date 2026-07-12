@@ -97,7 +97,7 @@ pub fn list_mindmaps(app_data: &Path) -> Result<Vec<Mindmap>, String> {
 }
 
 pub fn create_mindmap(app_data: &Path, title: Option<String>) -> Result<Mindmap, String> {
-    let id = format!("mindmap-{}", now_millis()?);
+    let id = uuid::Uuid::new_v4().to_string();
     let ts = now_millis()?;
     let resolved = resolve_title(title)?;
     let mm = Mindmap {

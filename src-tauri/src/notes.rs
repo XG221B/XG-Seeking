@@ -188,7 +188,7 @@ fn resolve_title(title: Option<String>) -> Result<String, String> {
 }
 
 pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, String> {
-    let id = format!("note-{}", now_millis()?);
+    let id = uuid::Uuid::new_v4().to_string();
     let ts = now_millis()?;
     let resolved = resolve_title(title)?;
     let path = note_path(app_data, &id)?;
