@@ -13,7 +13,8 @@
     "local": "node local-server.mjs",
     "smoke": "node tests/smoke/smoke-test.mjs",
     "smoke:ui": "node tests/smoke/ui-smoke.mjs",
-    "qa": "npm run smoke && npm run smoke:ui",
+    "smoke:stage1": "node tests/smoke/stage1-regression.mjs",
+    "qa": "npm run smoke && npm run smoke:ui && npm run smoke:stage1",
     "web:dev": "vite --host 127.0.0.1 --port 1420",
     "web:build": "vite build",
     "web:preview": "vite preview --host 127.0.0.1"

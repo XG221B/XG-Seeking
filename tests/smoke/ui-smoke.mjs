@@ -373,6 +373,7 @@ async function mindmapUiFlow() {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
   })()`);
   await waitFor("Array.from(document.querySelectorAll('.mm-text')).some((node) => node.textContent === 'Root node')", "Root node was not committed");
+  await delay(300);
 
   await pressKey("Tab", "Tab", 9);
   await waitFor("document.querySelector('.mm-edit-input')", "Child mindmap node editor did not open");
