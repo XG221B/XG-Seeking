@@ -20,7 +20,8 @@
     "web:preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0"
+    "@tauri-apps/api": "^2.8.0",
+    "markdown-it": "^14.3.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.4",

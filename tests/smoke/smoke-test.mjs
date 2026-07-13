@@ -232,7 +232,7 @@ async function sourceSafetyChecks() {
   const markdownSource = await readFile(join(root, "src", "markdown.js"), "utf8");
   assert(markdownSource.includes("escapeHtml"), "Markdown preview no longer imports escapeHtml");
   assert(markdownSource.includes("isSafeMarkdownUrl"), "Markdown link safety check missing");
-  assert(markdownSource.includes('rel="noreferrer"'), "External preview links lost safe rel attribute");
+  assert(markdownSource.includes("noreferrer"), "External preview links lost safe rel attribute");
 }
 
 async function noTempBackupLeftovers() {

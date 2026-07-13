@@ -8,6 +8,10 @@ import { mindmapCoords, getMindmapCoord, scheduleMindmapSave, flushMindmapSave, 
 
 function renderMindmaps() {
   syncMindmapCoordToDisplay();
+  if (state.pageLoading && state.mindmaps.length === 0 && state.mindmapTrash.length === 0) {
+    app.innerHTML = `<section class="notes"><div class="empty"><h2>${t("loadingMessage")}</h2></div></section>`;
+    return;
+  }
   const source = state.showMindmapTrash ? state.mindmapTrash : state.mindmaps;
   const selected = source.find((m) => m.id === state.selectedMindmapId);
   const keyword = state.mindmapQuery.trim().toLowerCase();
@@ -205,7 +209,7 @@ function renderNode(node, depth = 0) {
   ${!node.collapsed ? node.children.map((c) => renderNode(c, depth + 1)).join("") : ""}`;
 }
 
-function mindmapKeyHandler(e) {
+export function mindmapKeyHandler(e) {
   if (state.page !== "mindmaps" || state.showMindmapTrash) return;
   const mm = state.mindmaps.find((m) => m.id === state.selectedMindmapId);
   if (!mm) return;
@@ -486,7 +490,6 @@ export {
   renderNodes,
   renderNode,
   bindMindmapEvents,
-  mindmapKeyHandler,
   removeContextMenu,
   showContextMenu,
   getCurrentMindmap,

@@ -122,6 +122,10 @@ function renderTrashFooter() {
 
 function renderNotes() {
   syncNoteCoordToDisplay();
+  if (state.pageLoading && state.notes.length === 0 && state.trashNotes.length === 0) {
+    app.innerHTML = `<section class="notes"><div class="empty"><h2>${t("loadingMessage")}</h2></div></section>`;
+    return;
+  }
   const selected = state.showTrash
     ? state.trashNotes.find((note) => note.id === state.selectedId)
     : state.notes.find((note) => note.id === state.selectedId);

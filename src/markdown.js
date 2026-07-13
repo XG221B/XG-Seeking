@@ -1,85 +1,73 @@
-import { escapeHtml } from './helpers.js';
+import MarkdownIt from "markdown-it";
+import { escapeHtml } from "./helpers.js";
+
+const ALLOWED_TAGS = new Set([
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "br", "strong", "em", "code", "pre",
+  "blockquote", "ul", "ol", "li", "a", "hr",
+]);
+
+const ALLOWED_ATTRS = new Set(["href", "target", "rel"]);
+
+const BLOCKED_URL_PREFIXES = ["javascript:", "data:", "vbscript:"];
+
+export const isSafeMarkdownUrl = (url) => {
+  const trimmed = String(url || "").trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  for (const prefix of BLOCKED_URL_PREFIXES) {
+    if (lower.startsWith(prefix)) return false;
+  }
+  return /^(https?:\/\/|mailto:|#|\/(?!\/))/i.test(trimmed);
+};
+
+const md = new MarkdownIt({ html: false, breaks: false, linkify: false, typographer: false });
+
+const defaultLinkOpen = md.renderer.rules.link_open;
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  const hrefIndex = token.attrIndex("href");
+  if (hrefIndex >= 0) {
+    const href = token.attrs[hrefIndex][1];
+    if (!isSafeMarkdownUrl(href)) {
+      token.attrs[hrefIndex][1] = "#blocked";
+      token.attrs.push(["rel", "noreferrer"]);
+    } else {
+      token.attrs.push(["target", "_blank"]);
+      token.attrs.push(["rel", "noreferrer"]);
+    }
+  }
+  if (defaultLinkOpen) return defaultLinkOpen(tokens, idx, options, env, self);
+  return self.renderToken(tokens, idx, options);
+};
+
+function sanitizeHtml(html) {
+  return html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*)?\/?>/g, (match, tag) => {
+    const lower = tag.toLowerCase();
+    if (!ALLOWED_TAGS.has(lower)) return escapeHtml(match);
+
+    const fullMatch = match;
+    const attrStr = fullMatch.slice(tag.length + 1, fullMatch.endsWith("/>") ? -2 : -1).trim();
+    if (!attrStr) return fullMatch;
+
+    let cleanedAttrs = "";
+    const attrRegex = /([a-zA-Z][a-zA-Z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
+    let attrMatch;
+    while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
+      const attrName = attrMatch[1].toLowerCase();
+      if (ALLOWED_ATTRS.has(attrName)) {
+        const attrVal = attrMatch[2] || attrMatch[3] || attrMatch[4] || "";
+        cleanedAttrs += ` ${attrMatch[1]}="${escapeHtml(attrVal)}"`;
+      }
+    }
+    return `<${tag}${cleanedAttrs}>`;
+  });
+}
 
 export function renderMd(text) {
-  const isSafeMarkdownUrl = (value) => /^(https?:\/\/|mailto:|#|\/(?!\/))/i.test(value.trim());
-  const inlineMd = (value) => escapeHtml(value)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
-      const safeUrl = url.trim();
-      if (!isSafeMarkdownUrl(safeUrl)) return match;
-      return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noreferrer">${label}</a>`;
-    });
-
-  const output = [];
-  let paragraph = [];
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    output.push(`<p>${paragraph.map(inlineMd).join("<br>")}</p>`);
-    paragraph = [];
-  };
-
-  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      flushParagraph();
-      continue;
-    }
-
-    if (trimmed.startsWith("```")) {
-      flushParagraph();
-      const codeLines = [];
-      i += 1;
-      while (i < lines.length && !lines[i].trim().startsWith("```")) {
-        codeLines.push(lines[i]);
-        i += 1;
-      }
-      output.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-      continue;
-    }
-
-    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      const level = heading[1].length;
-      output.push(`<h${level}>${inlineMd(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    if (/^-\s+/.test(trimmed)) {
-      flushParagraph();
-      const items = [];
-      while (i < lines.length && /^-\s+/.test(lines[i].trim())) {
-        items.push(`<li>${inlineMd(lines[i].trim().replace(/^-\s+/, ""))}</li>`);
-        i += 1;
-      }
-      i -= 1;
-      output.push(`<ul>${items.join("")}</ul>`);
-      continue;
-    }
-
-    if (/^>\s?/.test(trimmed)) {
-      flushParagraph();
-      const quoteLines = [];
-      while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-        quoteLines.push(lines[i].trim().replace(/^>\s?/, ""));
-        i += 1;
-      }
-      i -= 1;
-      output.push(`<blockquote>${quoteLines.map(inlineMd).join("<br>")}</blockquote>`);
-      continue;
-    }
-
-    paragraph.push(line);
-  }
-
-  flushParagraph();
-  return output.join("");
+  if (!text) return "";
+  const html = md.render(String(text));
+  return sanitizeHtml(html);
 }
 
 export function bodyToPreviewHtml(value) {

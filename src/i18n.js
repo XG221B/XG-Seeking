@@ -68,6 +68,7 @@ export const STRINGS = {
     saveSaved: "已保存",
     saveFailed: "保存失败，请检查磁盘权限或空间",
     saveConflict: "版本冲突，请刷新后重试",
+    loadingMessage: "加载中...",
     appTitle: "寻找心灵的碎片...",
   },
   en: {
@@ -137,6 +138,7 @@ export const STRINGS = {
     saveSaved: "Saved",
     saveFailed: "Save failed. Check disk permissions or space.",
     saveConflict: "Version conflict. Reload and try again.",
+    loadingMessage: "Loading...",
     appTitle: "Seeking fragments of the soul...",
   },
 };

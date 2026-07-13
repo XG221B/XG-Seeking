@@ -270,6 +270,11 @@ async function navigateToApp() {
   await waitFor("document.readyState === 'complete' && document.querySelector('#app')", "App shell did not load");
 }
 
+async function reloadApp() {
+  await client.send("Page.reload");
+  await waitFor("document.readyState === 'complete' && document.querySelector('#app')", "App shell did not reload");
+}
+
 async function notesEditPreviewFlow() {
   await click('[data-page="notes"]');
   await waitFor("document.querySelector('#new') || document.querySelector('#emptyNew')", "Notes page did not become interactive");
@@ -353,6 +358,8 @@ async function noteTrashRestoreFlow() {
 }
 
 async function mindmapUiFlow() {
+  await reloadApp();
+  await delay(800);
   await click('[data-page="mindmaps"]');
   await waitFor("document.querySelector('#newMindmap')", "Mindmap page did not become interactive");
   await click("#newMindmap");
@@ -363,6 +370,7 @@ async function mindmapUiFlow() {
     title.value = ${JSON.stringify(`${testPrefix}_MINDMAP`)};
     title.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
+  await delay(300);
 
   await pressKey("Tab", "Tab", 9);
   await waitFor("document.querySelector('.mm-edit-input')", "First mindmap node editor did not open");
@@ -384,6 +392,8 @@ async function mindmapUiFlow() {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
   })()`);
   await waitFor("Array.from(document.querySelectorAll('.mm-text')).some((node) => node.textContent === 'Child node')", "Child node was not committed");
+  await waitFor("document.querySelector('.mm-toggle')", "Toggle button did not appear after child node added", 8000);
+  await delay(200);
 
   await click(".mm-toggle");
   await waitFor("!Array.from(document.querySelectorAll('.mm-text')).some((node) => node.textContent === 'Child node')", "Collapsed parent still shows child node");

@@ -11,6 +11,7 @@ import {
 import { 
   loadMindmaps, loadMindmapTrashSilent, renderMindmaps, getCurrentMindmap,
   createMindmap, trashMindmap, restoreMindmap, clearAllMindmapTrash,
+  mindmapKeyHandler,
 } from "./mindmap-view.js";
 
 // ── Settings ──
@@ -104,7 +105,10 @@ function updateNavLabels() {
 
 async function setPage(page) {
   const token = ++pageLoadToken.current;
-  if (state.page === "notes" && !state.showTrash) {
+  const leavingPage = state.page;
+
+  // Flush dirty state before leaving current page
+  if (leavingPage === "notes" && !state.showTrash) {
     if (state.selectedId) {
       const note = selectedNote();
       if (note) {
@@ -118,22 +122,36 @@ async function setPage(page) {
     }
   }
 
-  if (state.page === "mindmaps" && !state.showMindmapTrash) {
+  if (leavingPage === "mindmaps" && !state.showMindmapTrash) {
     const mm = getCurrentMindmap();
     if (mm) {
       const saved = await flushMindmapSave(mm.id);
       if (!saved) { alert(t("saveFailed")); return; }
     }
   }
+
+  // Reset page state
   state.page = page;
+  state.pageLoading = true;
   state.showTrash = false;
-  if (page === "notes") state.sourceMode = false;
+  if (page === "notes" && leavingPage !== "notes") state.sourceMode = false;
   if (page !== "notes") state.query = "";
   if (page !== "mindmaps") state.mindmapQuery = "";
   navButtons.forEach((button) => button.classList.toggle("active", button.dataset.page === page));
+
+  // Clear document-level page-specific handlers
+  unmountPage(leavingPage);
+
   render();
-  if (page === "notes") loadNotes(token);
-  if (page === "mindmaps") loadMindmaps(token);
+  if (page === "notes") { await loadNotes(token); state.pageLoading = false; }
+  else if (page === "mindmaps") { await loadMindmaps(token); state.pageLoading = false; }
+  else { state.pageLoading = false; }
+}
+
+function unmountPage(page) {
+  if (page === "mindmaps") {
+    document.removeEventListener("keydown", mindmapKeyHandler);
+  }
 }
 
 function render() {

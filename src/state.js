@@ -2,6 +2,7 @@ import { t } from './i18n.js';
 
 const state = {
   page: "home",
+  pageLoading: false,
   notes: [],
   selectedId: "",
   query: "",
