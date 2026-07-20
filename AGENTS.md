@@ -22,6 +22,10 @@ The intended note experience is close to Obsidian:
 
 Mindmaps are a separate structured feature. They should remain simple, local, and predictable: title, nodes, nested children, collapse state, trash, restore, and permanent delete.
 
+## Tags
+
+Tags are derived from note bodies at render time. There is no stored tag schema, no tag metadata, no tag pages, no tag folders, no backlinks, and no clickable tags in Preview mode. Tags appear only in the sidebar as a filter dropdown when active notes contain tags. The tag filter is ephemeral UI state and is not persisted.
+
 ## Current Architecture
 
 Important files:
@@ -103,6 +107,7 @@ If a requested feature cannot be supported safely in Markdown source + Preview, 
 6. Text must not overlap or overflow controls.
 7. Search, trash, restore, permanent delete, settings, and mindmaps must keep working after UI changes.
 8. Dangerous actions need confirmation or a recovery path.
+9. Appearance supports `system`, `light`, and `dark`. Theme colors must use the shared CSS tokens; do not add page-specific hard-coded dark colors.
 
 ## Internationalization Rules
 
@@ -226,6 +231,24 @@ Follow this order unless the user asks otherwise:
 6. Fix page switching, stale request, and delete-after-save races.
 7. Improve UI polish without changing the product model.
 8. Add or improve tests for newly fixed bugs.
+
+## Resolved Regression Guardrails
+
+These regressions occurred during the 0.3 work and were fixed. Future agents must preserve the fixes and add regression coverage when changing the same paths.
+
+- Conflict state is per document in `src/coordinator.js`. Never replace it with a singleton note or mindmap conflict id: two documents can conflict independently.
+- Editing after a conflict must keep updating that document's coordinator draft, but must not retry a disk write until the user chooses a conflict action.
+- Conflict "Save as new" must copy the coordinator draft, including edits made in Preview/conflict state. It must never reconstruct content from the current DOM.
+- Queued saves must resolve `expectedRevision` when their queue task begins. Capturing it before an older save finishes can create a false self-conflict.
+- Create, delete, and restore mutations must invalidate pending list-load tokens. A stale list response must never resurrect a deleted item or discard a newly created/restored item in memory.
+- Missing-export and similar Vite warnings are release blockers, even when the build exits successfully.
+- Browser runtime exceptions, unhandled rejections, console errors, and intermittent UI failures are real QA failures. Do not suppress, ignore-list, or catch-and-discard them to make tests green.
+- Markdown Preview relies on `markdown-it` with raw HTML disabled and a constrained link renderer. Do not reintroduce regex-based HTML sanitization; it previously converted closing tags into opening tags.
+- Backend mutation locks must cover revision check plus write/move/delete as one critical section. Frontend queues alone do not protect multiple app instances.
+- `save_note` and `save_mindmap` must never create missing files. Only `create_*` may create active items, even when an old caller omits `expectedRevision`.
+- Tauri close requests must remain blocked until all dirty documents flush successfully. Browser unload handlers are only best-effort fallbacks.
+- Node browser-mode APIs must remain POST-only, JSON-only, loopback-hosted, and same-origin protected.
+- Smoke-test steps must affect the process exit code. A printed `FAIL` with exit code 0 is a release blocker.
 
 ## Definition Of Done
 

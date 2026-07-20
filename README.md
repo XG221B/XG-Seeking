@@ -32,6 +32,15 @@ Download the latest `XG221B_0.x.x_x64-setup.exe` from [Releases](https://github.
 
 To uninstall, use Windows Settings > Apps > XG221B, or run `uninstall.exe` from the install directory.
 
+## Data Directory
+
+All user data (notes, mindmaps, settings, trash) is stored locally in a single data directory:
+
+- **Installed app**: `%APPDATA%\XG221B\` (reachable via Settings > Open Data Folder)
+- **Browser/dev mode**: `local-data\` inside the project folder
+
+To back up, copy the complete data directory. To restore, place the copy in the correct location.
+
 ## Development
 
 Prerequisites:

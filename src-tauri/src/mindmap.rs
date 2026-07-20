@@ -1,4 +1,4 @@
-use crate::storage::{atomic_write_text, sha256_hex};
+use crate::storage::{atomic_write_text, sha256_hex, with_file_locks};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Reverse,
@@ -74,10 +74,54 @@ fn now_millis() -> Result<u64, String> {
 }
 
 const MAX_TITLE_LEN: usize = 500;
+const MAX_MINDMAP_BYTES: u64 = 1_048_576;
+const MAX_MINDMAP_NODES: usize = 5_000;
+const MAX_MINDMAP_DEPTH: usize = 100;
+const MAX_NODE_TEXT_LEN: usize = 10_000;
 
 fn validate_title(title: &str) -> Result<(), String> {
+    if title.trim().is_empty() {
+        return Err("Title must not be empty".into());
+    }
     if title.chars().count() > MAX_TITLE_LEN {
         return Err(format!("Title too long (max {MAX_TITLE_LEN} chars)"));
+    }
+    Ok(())
+}
+
+fn validate_mindmap(mm: &Mindmap) -> Result<(), String> {
+    validate_id(&mm.id)?;
+    validate_title(&mm.title)?;
+    let mut stack: Vec<(&MindmapNode, usize)> = mm.nodes.iter().map(|node| (node, 1)).collect();
+    let mut count = 0usize;
+    while let Some((node, depth)) = stack.pop() {
+        count += 1;
+        if count > MAX_MINDMAP_NODES {
+            return Err(format!("Too many mindmap nodes (max {MAX_MINDMAP_NODES})"));
+        }
+        if depth > MAX_MINDMAP_DEPTH {
+            return Err(format!(
+                "Mindmap nesting too deep (max {MAX_MINDMAP_DEPTH})"
+            ));
+        }
+        validate_id(&node.id)?;
+        if node.text.chars().count() > MAX_NODE_TEXT_LEN {
+            return Err(format!(
+                "Mindmap node text too long (max {MAX_NODE_TEXT_LEN})"
+            ));
+        }
+        stack.extend(node.children.iter().map(|child| (child, depth + 1)));
+    }
+    Ok(())
+}
+
+fn check_revision(path: &Path, expected_revision: Option<&str>) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|_| "NOT_FOUND:".to_string())?;
+    if let Some(expected) = expected_revision {
+        let current = sha256_hex(&bytes);
+        if current != expected {
+            return Err(format!("CONFLICT:{current}"));
+        }
     }
     Ok(())
 }
@@ -98,10 +142,14 @@ fn resolve_title(title: Option<String>) -> Result<String, String> {
 }
 
 fn read_mindmap_from(path: &Path) -> Result<Mindmap, String> {
+    if fs::metadata(path).map_err(|e| e.to_string())?.len() > MAX_MINDMAP_BYTES {
+        return Err("Mindmap file too large".into());
+    }
     let bytes = fs::read(path).map_err(|e| e.to_string())?;
     let revision = sha256_hex(&bytes);
     let raw = String::from_utf8(bytes).map_err(|e| e.to_string())?;
     let mut mm: Mindmap = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    validate_mindmap(&mm)?;
     mm.revision = revision;
     Ok(mm)
 }
@@ -133,6 +181,23 @@ pub fn list_mindmaps(app_data: &Path) -> Result<Vec<Mindmap>, String> {
     list_mindmaps_in(&mindmaps_dir(app_data))
 }
 
+pub fn storage_warning_count(app_data: &Path) -> (usize, usize) {
+    fn count(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+                    })
+                    .filter(|entry| read_mindmap_from(&entry.path()).is_err())
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+    (count(&mindmaps_dir(app_data)), count(&trash_dir(app_data)))
+}
+
 pub fn create_mindmap(app_data: &Path, title: Option<String>) -> Result<Mindmap, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let ts = now_millis()?;
@@ -157,23 +222,24 @@ pub fn save_mindmap(
     mm: Mindmap,
     expected_revision: Option<String>,
 ) -> Result<Mindmap, String> {
-    if let Err(e) = validate_title(&mm.title) {
+    if let Err(e) = validate_mindmap(&mm) {
         return Err(format!("VALIDATION:{}", e));
     }
     let path = mindmap_path(app_data, &mm.id).map_err(|e| format!("VALIDATION:{}", e))?;
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
     let mut saved = mm;
     saved.updated_at = now_millis().map_err(|e| format!("IO:{}", e))?;
     saved.revision = String::new();
     let raw = serde_json::to_string(&saved).map_err(|e| format!("IO:{}", e))?;
+    if raw.len() as u64 > MAX_MINDMAP_BYTES {
+        return Err(format!(
+            "VALIDATION:Mindmap file too large (max {MAX_MINDMAP_BYTES} bytes)"
+        ));
+    }
     let revision = sha256_hex(raw.as_bytes());
-    atomic_write_text(&path, &raw).map_err(|e| format!("IO:{}", e))?;
+    with_file_locks(std::slice::from_ref(&path), || {
+        check_revision(&path, expected_revision.as_deref())?;
+        atomic_write_text(&path, &raw).map_err(|e| format!("IO:{}", e))
+    })?;
     saved.revision = revision;
     Ok(saved)
 }
@@ -184,22 +250,15 @@ pub fn delete_mindmap(
     expected_revision: Option<String>,
 ) -> Result<(), String> {
     let src = mindmap_path(app_data, id).map_err(|e| format!("VALIDATION:{}", e))?;
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if !src.exists() {
-        return Ok(());
-    }
     let dst = trash_dir(app_data).join(format!("{id}.json"));
-    if dst.exists() {
-        return Err("VALIDATION:A trashed mindmap with this id already exists".to_string());
-    }
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| format!("IO:{}", e))?;
-    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    with_file_locks(&[src.clone(), dst.clone()], || {
+        check_revision(&src, expected_revision.as_deref())?;
+        if dst.exists() {
+            return Err("VALIDATION:A trashed mindmap with this id already exists".to_string());
+        }
+        fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    })
 }
 
 pub fn list_trash(app_data: &Path) -> Result<Vec<Mindmap>, String> {
@@ -217,21 +276,14 @@ pub fn restore_mindmap(
 ) -> Result<Mindmap, String> {
     validate_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let src = trash_dir(app_data).join(format!("{id}.json"));
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if !src.exists() {
-        return Err("NOT_FOUND:Mindmap not found in trash".to_string());
-    }
     let dst = mindmaps_dir(app_data).join(format!("{id}.json"));
-    if dst.exists() {
-        return Err("VALIDATION:A mindmap with this id already exists".to_string());
-    }
-    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))?;
+    with_file_locks(&[src.clone(), dst.clone()], || {
+        check_revision(&src, expected_revision.as_deref())?;
+        if dst.exists() {
+            return Err("VALIDATION:A mindmap with this id already exists".to_string());
+        }
+        fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    })?;
     read_mindmap_from(&dst).map_err(|e| format!("IO:{}", e))
 }
 
@@ -242,17 +294,10 @@ pub fn delete_permanently(
 ) -> Result<(), String> {
     validate_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let path = trash_dir(app_data).join(format!("{id}.json"));
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("IO:{}", e))?;
-    }
-    Ok(())
+    with_file_locks(std::slice::from_ref(&path), || {
+        check_revision(&path, expected_revision.as_deref())?;
+        fs::remove_file(&path).map_err(|e| format!("IO:{}", e))
+    })
 }
 
 #[cfg(test)]
@@ -343,6 +388,22 @@ mod tests {
         let err = result.err().unwrap();
         assert!(err.starts_with("CONFLICT:"));
         assert!(err.contains(&mm.revision));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn save_missing_mindmap_without_revision_is_rejected() {
+        let dir = setup_dirs();
+        let missing = Mindmap {
+            id: "AI_TEST_nonexistent_no_revision".into(),
+            title: "Missing".into(),
+            updated_at: 0,
+            nodes: Vec::new(),
+            revision: String::new(),
+            _extra: HashMap::new(),
+        };
+        let result = save_mindmap(&dir, missing, None);
+        assert!(result.unwrap_err().starts_with("NOT_FOUND:"));
         clean_dir(&dir);
     }
 

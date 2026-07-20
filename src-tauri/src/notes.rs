@@ -1,4 +1,4 @@
-use crate::storage::{atomic_write_text, sha256_hex};
+use crate::storage::{atomic_write_text, sha256_hex, with_file_locks};
 use serde::Serialize;
 use std::{
     cmp::Reverse,
@@ -174,6 +174,20 @@ fn validate_note_content(title: &str, body: &str) -> Result<(), String> {
     if body.chars().count() > MAX_BODY_LEN {
         return Err(format!("Body too long (max {MAX_BODY_LEN} chars)"));
     }
+    if title.trim().is_empty() {
+        return Err("Title must not be empty".into());
+    }
+    Ok(())
+}
+
+fn check_revision(path: &Path, expected_revision: Option<&str>) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|_| "NOT_FOUND:".to_string())?;
+    if let Some(expected) = expected_revision {
+        let current = sha256_hex(&bytes);
+        if current != expected {
+            return Err(format!("CONFLICT:{current}"));
+        }
+    }
     Ok(())
 }
 
@@ -194,6 +208,29 @@ fn resolve_title(title: Option<String>) -> Result<String, String> {
 
 pub fn list_notes(app_data: &Path) -> Result<Vec<Note>, String> {
     list_notes_in(&notes_dir(app_data))
+}
+
+pub fn storage_warning_count(app_data: &Path) -> (usize, usize) {
+    fn count(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|entry| {
+                        entry.path().extension().and_then(|ext| ext.to_str()) == Some("md")
+                    })
+                    .filter(|entry| {
+                        let path = entry.path();
+                        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                            return true;
+                        };
+                        validate_note_id(id).is_err() || read_note_from(&path, id).is_err()
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+    (count(&notes_dir(app_data)), count(&trash_dir(app_data)))
 }
 
 pub fn create_note(app_data: &Path, title: Option<String>) -> Result<Note, String> {
@@ -224,16 +261,12 @@ pub fn save_note(
         return Err(format!("VALIDATION:{}", e));
     }
     let path = note_path(app_data, &id).map_err(|e| format!("VALIDATION:{}", e))?;
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
     let content = serialize_note(&title, &body);
     let revision = sha256_hex(content.as_bytes());
-    atomic_write_text(&path, &content).map_err(|e| format!("IO:{}", e))?;
+    with_file_locks(std::slice::from_ref(&path), || {
+        check_revision(&path, expected_revision.as_deref())?;
+        atomic_write_text(&path, &content).map_err(|e| format!("IO:{}", e))
+    })?;
     Ok(Note {
         id,
         title,
@@ -249,22 +282,15 @@ pub fn delete_note(
     expected_revision: Option<String>,
 ) -> Result<(), String> {
     let src = note_path(app_data, id).map_err(|e| format!("VALIDATION:{}", e))?;
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if !src.exists() {
-        return Ok(());
-    }
     let dst = trash_dir(app_data).join(format!("{id}.md"));
-    if dst.exists() {
-        return Err("VALIDATION:A trashed note with this id already exists".to_string());
-    }
     fs::create_dir_all(trash_dir(app_data)).map_err(|e| format!("IO:{}", e))?;
-    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    with_file_locks(&[src.clone(), dst.clone()], || {
+        check_revision(&src, expected_revision.as_deref())?;
+        if dst.exists() {
+            return Err("VALIDATION:A trashed note with this id already exists".to_string());
+        }
+        fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    })
 }
 
 pub fn list_trash(app_data: &Path) -> Result<Vec<Note>, String> {
@@ -282,21 +308,14 @@ pub fn restore_note(
 ) -> Result<Note, String> {
     validate_note_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let src = trash_dir(app_data).join(format!("{id}.md"));
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&src).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if !src.exists() {
-        return Err("NOT_FOUND:Note not found in trash".to_string());
-    }
     let dst = notes_dir(app_data).join(format!("{id}.md"));
-    if dst.exists() {
-        return Err("VALIDATION:A note with this id already exists".to_string());
-    }
-    fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))?;
+    with_file_locks(&[src.clone(), dst.clone()], || {
+        check_revision(&src, expected_revision.as_deref())?;
+        if dst.exists() {
+            return Err("VALIDATION:A note with this id already exists".to_string());
+        }
+        fs::rename(&src, &dst).map_err(|e| format!("IO:{}", e))
+    })?;
     read_note_from(
         &note_path(app_data, id).map_err(|e| format!("VALIDATION:{}", e))?,
         id,
@@ -311,17 +330,10 @@ pub fn delete_permanently(
 ) -> Result<(), String> {
     validate_note_id(id).map_err(|e| format!("VALIDATION:{}", e))?;
     let path = trash_dir(app_data).join(format!("{id}.md"));
-    if let Some(ref expected) = expected_revision {
-        let bytes = fs::read(&path).map_err(|_| "NOT_FOUND:".to_string())?;
-        let current = sha256_hex(&bytes);
-        if current != *expected {
-            return Err(format!("CONFLICT:{}", current));
-        }
-    }
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("IO:{}", e))?;
-    }
-    Ok(())
+    with_file_locks(std::slice::from_ref(&path), || {
+        check_revision(&path, expected_revision.as_deref())?;
+        fs::remove_file(&path).map_err(|e| format!("IO:{}", e))
+    })
 }
 
 #[cfg(test)]
@@ -437,6 +449,62 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.starts_with("NOT_FOUND:"));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn save_missing_note_without_revision_is_rejected() {
+        let dir = setup_dirs();
+        let result = save_note(
+            &dir,
+            "AI_TEST_nonexistent_no_revision".into(),
+            "Title".into(),
+            "body".into(),
+            None,
+        );
+        assert!(result.unwrap_err().starts_with("NOT_FOUND:"));
+        clean_dir(&dir);
+    }
+
+    #[test]
+    fn concurrent_writes_with_same_revision_only_allow_one() {
+        let dir = setup_dirs();
+        let note = create_note(&dir, Some("AI_TEST_Concurrent".into())).unwrap();
+        let revision = note.revision.clone();
+        let first_dir = dir.clone();
+        let first_id = note.id.clone();
+        let first_revision = revision.clone();
+        let first = thread::spawn(move || {
+            save_note(
+                &first_dir,
+                first_id,
+                "First".into(),
+                "a".into(),
+                Some(first_revision),
+            )
+        });
+        let second_dir = dir.clone();
+        let second_id = note.id.clone();
+        let second = thread::spawn(move || {
+            save_note(
+                &second_dir,
+                second_id,
+                "Second".into(),
+                "b".into(),
+                Some(revision),
+            )
+        });
+        let results = [first.join().unwrap(), second.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result
+                    .as_ref()
+                    .is_err_and(|error| error.starts_with("CONFLICT:")))
+                .count(),
+            1
+        );
         clean_dir(&dir);
     }
 

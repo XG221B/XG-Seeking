@@ -1,14 +1,17 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 const port = Number(process.env.PORT || 1420);
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  throw new Error("PORT must be an integer between 1 and 65535");
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  throw new Error("PORT must be an integer between 0 and 65535");
 }
+const allowPortZero = port === 0;
 const root = process.cwd();
 const distDir = join(root, "dist");
 const dataDir = join(root, "local-data");
@@ -17,8 +20,9 @@ const trashDir = join(dataDir, "trash");
 const mindmapsDir = join(dataDir, "mindmaps");
 const mindmapsTrashDir = join(dataDir, "mindmaps_trash");
 const settingsFile = join(dataDir, "settings.json");
+const lockRoot = join(tmpdir(), "xg-seeking-locks", computeRevision(resolve(dataDir)).slice(0, 20));
 
-const defaultSettings = { language: "zh", title: "寻找心灵的碎片..." };
+const defaultSettings = { language: "zh", title: "寻找心灵的碎片...", theme: "system" };
 const DEFAULT_NOTE_TITLE = "未命名想法";
 const DEFAULT_MINDMAP_TITLE = "未命名导图";
 
@@ -30,6 +34,7 @@ await mkdir(notesDir, { recursive: true });
 await mkdir(trashDir, { recursive: true });
 await mkdir(mindmapsDir, { recursive: true });
 await mkdir(mindmapsTrashDir, { recursive: true });
+await mkdir(lockRoot, { recursive: true });
 
 function nowMillis() {
   return Date.now();
@@ -47,7 +52,6 @@ function computeRevision(raw) {
 }
 
 async function checkRevision(filePath, expectedRevision) {
-  if (expectedRevision == null || expectedRevision === "") return;
   let raw;
   try {
     raw = await readFile(filePath, "utf8");
@@ -57,7 +61,8 @@ async function checkRevision(filePath, expectedRevision) {
     }
     throw apiError("IO error reading file", "IO", 500);
   }
-  const current = createHash("sha256").update(raw, "utf8").digest("hex");
+  if (expectedRevision == null || expectedRevision === "") return;
+  const current = computeRevision(raw);
   if (current !== expectedRevision) {
     const err = apiError("Revision conflict: the item was modified by another session", "CONFLICT", 409);
     err.currentRevision = current;
@@ -67,7 +72,9 @@ async function checkRevision(filePath, expectedRevision) {
 
 async function atomicWriteText(file, text) {
   const dir = dirname(file);
-  const temp = join(dir, `.${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+  const base = file.split(/[/\\]/).pop() || "untitled";
+  const temp = join(dir, `.${base}.${randomUUID()}.tmp`);
+  const backup = join(dir, `.${base}.bak`);
   let fh;
   try {
     fh = await open(temp, "w");
@@ -78,7 +85,19 @@ async function atomicWriteText(file, text) {
       await fh.close();
       fh = null;
     }
-    await rename(temp, file);
+    if (existsSync(file)) {
+      await rm(backup, { force: true }).catch(() => {});
+      await rename(file, backup);
+    }
+    try {
+      await rename(temp, file);
+    } catch (renameError) {
+      await rm(temp, { force: true }).catch(() => {});
+      if (existsSync(backup)) {
+        await rename(backup, file).catch(() => {});
+      }
+      throw renameError;
+    }
     try {
       const dh = await open(dir, "r");
       try {
@@ -89,6 +108,7 @@ async function atomicWriteText(file, text) {
     } catch {
       // Directory sync not supported on this platform
     }
+    await rm(backup, { force: true }).catch(() => {});
   } catch (error) {
     if (fh) await fh.close().catch(() => {});
     await rm(temp, { force: true }).catch(() => {});
@@ -185,14 +205,83 @@ async function listTrashNotes() {
 async function loadSettings() {
   try {
     const raw = await readFile(settingsFile, "utf8");
-    return { ...defaultSettings, ...JSON.parse(raw) };
-  } catch {
-    return { ...defaultSettings };
+    return normalizeSettings(JSON.parse(raw));
+  } catch (error) {
+    if (error?.code === "ENOENT") return { ...defaultSettings, warnings: [] };
+    return { ...defaultSettings, warnings: ["SETTINGS_UNREADABLE"] };
+  }
+}
+
+async function countUnreadable(dir, extension, reader) {
+  const files = (await readdir(dir).catch(() => [])).filter((file) => extname(file) === extension);
+  let unreadable = 0;
+  for (const file of files) {
+    try {
+      const value = await reader(file);
+      if (!value) unreadable += 1;
+    } catch {
+      unreadable += 1;
+    }
+  }
+  return unreadable;
+}
+
+async function getStorageWarnings() {
+  const [notes, trashNotes, mindmaps, mindmapTrash] = await Promise.all([
+    countUnreadable(notesDir, ".md", (file) => readNote(file.slice(0, -3))),
+    countUnreadable(trashDir, ".md", (file) => readTrashNote(file.slice(0, -3))),
+    countUnreadable(mindmapsDir, ".json", (file) => readMindmapFile(join(mindmapsDir, file))),
+    countUnreadable(mindmapsTrashDir, ".json", (file) => readMindmapFile(join(mindmapsTrashDir, file))),
+  ]);
+  const settings = (await loadSettings()).warnings?.length ? 1 : 0;
+  return { notes, trashNotes, mindmaps, mindmapTrash, settings, total: notes + trashNotes + mindmaps + mindmapTrash + settings };
+}
+
+async function acquirePathLock(filePath) {
+  const lockPath = join(lockRoot, `${computeRevision(resolve(filePath)).slice(0, 32)}.lock`);
+  const deadline = Date.now() + 15_000;
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      return async () => { await rm(lockPath, { recursive: true, force: true }).catch(() => {}); };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > 30_000) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() >= deadline) throw apiError("Timed out waiting for storage lock", "IO", 503);
+      await delay(25);
+    }
+  }
+}
+
+async function withPathLocks(paths, operation) {
+  const releases = [];
+  const ordered = [...new Set(paths.map((path) => resolve(path)))].sort();
+  try {
+    for (const path of ordered) releases.push(await acquirePathLock(path));
+    return await operation();
+  } finally {
+    for (const release of releases.reverse()) await release();
   }
 }
 
 async function saveSettings(settings) {
-  await atomicWriteText(settingsFile, JSON.stringify(settings, null, 2));
+  await atomicWriteText(settingsFile, JSON.stringify(normalizeSettings(settings), null, 2));
+}
+
+function normalizeSettings(settings = {}) {
+  return {
+    language: settings.language === "en" ? "en" : "zh",
+    title: typeof settings.title === "string" && settings.title.trim() ? settings.title.trim() : defaultSettings.title,
+    theme: settings.theme === "light" || settings.theme === "dark" ? settings.theme : "system",
+  };
 }
 
 // ── Mindmaps ──
@@ -233,6 +322,8 @@ async function listMindmapTrash() {
 
 async function readMindmapFile(file) {
   try {
+    const info = await stat(file);
+    if (info.size > MAX_MINDMAP_BYTES) throw apiError("Mindmap file too large", "VALIDATION", 400);
     const raw = await readFile(file, "utf8");
     const map = JSON.parse(raw);
     validateMindmap(map);
@@ -247,6 +338,10 @@ async function readMindmapFile(file) {
 const MAX_BODY = 1_048_576; // 1 MB
 const MAX_TITLE_LEN = 500;
 const MAX_BODY_LEN = 100_000;
+const MAX_MINDMAP_BYTES = 1_048_576;
+const MAX_MINDMAP_NODES = 5_000;
+const MAX_MINDMAP_DEPTH = 100;
+const MAX_NODE_TEXT_LEN = 10_000;
 
 async function readJson(request) {
   const chunks = [];
@@ -262,6 +357,7 @@ async function readJson(request) {
 function validateNoteContent(title, body) {
   if (title && Array.from(title).length > MAX_TITLE_LEN) throw apiError(`Title too long (max ${MAX_TITLE_LEN})`, "VALIDATION", 400);
   if (body && Array.from(body).length > MAX_BODY_LEN) throw apiError(`Body too long (max ${MAX_BODY_LEN})`, "VALIDATION", 400);
+  if (title != null && String(title).trim() === "") throw apiError("Title must not be empty", "VALIDATION", 400);
 }
 
 function resolveTitle(title, fallback) {
@@ -270,22 +366,27 @@ function resolveTitle(title, fallback) {
   return normalized;
 }
 
-function validateMindmapNode(node) {
-  if (!node || typeof node !== "object") throw apiError("Invalid mindmap node", "VALIDATION", 400);
-  ensureId(node.id);
-  if (typeof node.text !== "string") throw apiError("Invalid mindmap node text", "VALIDATION", 400);
-  if (typeof node.collapsed !== "boolean") node.collapsed = Boolean(node.collapsed);
-  if (!Array.isArray(node.children)) node.children = [];
-  node.children.forEach(validateMindmapNode);
-}
-
 function validateMindmap(map) {
   if (!map || typeof map !== "object") throw apiError("Invalid mindmap", "VALIDATION", 400);
   ensureId(map.id);
   if (typeof map.title !== "string") throw apiError("Invalid mindmap title", "VALIDATION", 400);
   if (Array.from(map.title).length > MAX_TITLE_LEN) throw apiError(`Title too long (max ${MAX_TITLE_LEN})`, "VALIDATION", 400);
   if (!Array.isArray(map.nodes)) map.nodes = [];
-  map.nodes.forEach(validateMindmapNode);
+  const stack = map.nodes.map((node) => ({ node, depth: 1 }));
+  let count = 0;
+  while (stack.length) {
+    const { node, depth } = stack.pop();
+    count += 1;
+    if (count > MAX_MINDMAP_NODES) throw apiError(`Too many mindmap nodes (max ${MAX_MINDMAP_NODES})`, "VALIDATION", 400);
+    if (depth > MAX_MINDMAP_DEPTH) throw apiError(`Mindmap nesting too deep (max ${MAX_MINDMAP_DEPTH})`, "VALIDATION", 400);
+    if (!node || typeof node !== "object") throw apiError("Invalid mindmap node", "VALIDATION", 400);
+    ensureId(node.id);
+    if (typeof node.text !== "string") throw apiError("Invalid mindmap node text", "VALIDATION", 400);
+    if (Array.from(node.text).length > MAX_NODE_TEXT_LEN) throw apiError(`Mindmap node text too long (max ${MAX_NODE_TEXT_LEN})`, "VALIDATION", 400);
+    if (typeof node.collapsed !== "boolean") node.collapsed = Boolean(node.collapsed);
+    if (!Array.isArray(node.children)) node.children = [];
+    for (const child of node.children) stack.push({ node: child, depth: depth + 1 });
+  }
 }
 
 function sendJson(response, value, statusCode = 200) {
@@ -314,7 +415,7 @@ async function recoverBakFiles(dir) {
     if (file.endsWith(".tmp")) {
       await rm(join(dir, file), { force: true }).catch(() => {});
     } else if (file.endsWith(".bak")) {
-      const baseName = file.slice(0, -4);
+      const baseName = file.startsWith(".") ? file.slice(1, -4) : file.slice(0, -4);
       const mainPath = join(dir, baseName);
       if (!existsSync(mainPath)) {
         await rename(join(dir, file), mainPath).catch(() => {});
@@ -324,9 +425,45 @@ async function recoverBakFiles(dir) {
   }
 }
 
+function validateApiRequest(request) {
+  if (request.method !== "POST") throw apiError("API requests must use POST", "VALIDATION", 405);
+  const contentType = String(request.headers["content-type"] || "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    throw apiError("API requests must use application/json", "VALIDATION", 415);
+  }
+
+  const host = String(request.headers.host || "");
+  let hostUrl;
+  try { hostUrl = new URL(`http://${host}`); } catch { throw apiError("Invalid Host header", "VALIDATION", 400); }
+  if (hostUrl.hostname !== "127.0.0.1" && hostUrl.hostname !== "localhost") {
+    throw apiError("Host is not allowed", "VALIDATION", 403);
+  }
+
+  const origin = request.headers.origin;
+  if (origin) {
+    let originUrl;
+    try { originUrl = new URL(origin); } catch { throw apiError("Invalid Origin header", "VALIDATION", 403); }
+    if (originUrl.protocol !== "http:" || originUrl.host !== hostUrl.host) {
+      throw apiError("Origin is not allowed", "VALIDATION", 403);
+    }
+  }
+}
+
 async function handleApi(request, response) {
+  validateApiRequest(request);
   const command = new URL(request.url, `http://127.0.0.1:${port}`).pathname.replace("/api/", "");
   const body = await readJson(request);
+
+  if (command === "get_data_directory") {
+    await mkdir(dataDir, { recursive: true });
+    return sendJson(response, { path: dataDir });
+  }
+
+  if (command === "open_data_directory") {
+    execFile("explorer.exe", [dataDir], { windowsHide: true });
+    response.writeHead(204);
+    return response.end();
+  }
 
   if (command === "list_notes") return sendJson(response, await listNotes());
 
@@ -338,22 +475,27 @@ async function handleApi(request, response) {
   }
 
   if (command === "save_note") {
-    await checkRevision(notePath(body.id), body.expectedRevision);
     validateNoteContent(body.title, body.body);
-    await atomicWriteText(notePath(body.id), serializeNote(body.title, body.body));
-    return sendJson(response, await readNote(body.id));
+    const path = notePath(body.id);
+    let saved;
+    await withPathLocks([path], async () => {
+      await checkRevision(path, body.expectedRevision);
+      await atomicWriteText(path, serializeNote(body.title, body.body));
+      saved = await readNote(body.id);
+    });
+    return sendJson(response, saved);
   }
 
+  if (command === "get_storage_warnings") return sendJson(response, await getStorageWarnings());
+
   if (command === "delete_note") {
-    await checkRevision(notePath(body.id), body.expectedRevision);
     const src = notePath(body.id);
     const dst = trashNotePath(body.id);
-    if (existsSync(dst)) throw apiError("A trashed note with this id already exists", "VALIDATION", 400);
-    try {
+    await withPathLocks([src, dst], async () => {
+      await checkRevision(src, body.expectedRevision);
+      if (existsSync(dst)) throw apiError("A trashed note with this id already exists", "VALIDATION", 400);
       await rename(src, dst);
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
-    }
+    });
     response.writeHead(204);
     return response.end();
   }
@@ -361,17 +503,22 @@ async function handleApi(request, response) {
   if (command === "list_trash") return sendJson(response, await listTrashNotes());
 
   if (command === "restore_note") {
-    await checkRevision(trashNotePath(body.id), body.expectedRevision);
     const src = trashNotePath(body.id);
     const dst = notePath(body.id);
-    if (existsSync(dst)) throw apiError("A note with this id already exists", "VALIDATION", 400);
-    await rename(src, dst);
+    await withPathLocks([src, dst], async () => {
+      await checkRevision(src, body.expectedRevision);
+      if (existsSync(dst)) throw apiError("A note with this id already exists", "VALIDATION", 400);
+      await rename(src, dst);
+    });
     return sendJson(response, await readNote(body.id));
   }
 
   if (command === "delete_permanently") {
-    await checkRevision(trashNotePath(body.id), body.expectedRevision);
-    await rm(trashNotePath(body.id), { force: true });
+    const path = trashNotePath(body.id);
+    await withPathLocks([path], async () => {
+      await checkRevision(path, body.expectedRevision);
+      await rm(path);
+    });
     response.writeHead(204);
     return response.end();
   }
@@ -405,25 +552,27 @@ async function handleApi(request, response) {
 
   if (command === "save_mindmap") {
     const data = body.mm || body;
-    await checkRevision(mindmapPath(data.id), body.expectedRevision);
     validateMindmap(data);
     const { revision: _rev, ...clean } = data;
     const mm = { ...clean, updatedAt: nowMillis() };
     const json = JSON.stringify(mm);
-    await atomicWriteText(mindmapPath(data.id), json);
+    const path = mindmapPath(data.id);
+    await withPathLocks([path], async () => {
+      await checkRevision(path, body.expectedRevision);
+      await atomicWriteText(path, json);
+    });
     mm.revision = computeRevision(json);
     return sendJson(response, mm);
   }
 
   if (command === "delete_mindmap") {
-    await checkRevision(mindmapPath(body.id), body.expectedRevision);
+    const src = mindmapPath(body.id);
     const dst = mindmapTrashPath(body.id);
-    if (existsSync(dst)) throw apiError("A trashed mindmap with this id already exists", "VALIDATION", 400);
-    try {
-      await rename(mindmapPath(body.id), dst);
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
-    }
+    await withPathLocks([src, dst], async () => {
+      await checkRevision(src, body.expectedRevision);
+      if (existsSync(dst)) throw apiError("A trashed mindmap with this id already exists", "VALIDATION", 400);
+      await rename(src, dst);
+    });
     response.writeHead(204);
     return response.end();
   }
@@ -431,19 +580,24 @@ async function handleApi(request, response) {
   if (command === "list_mindmap_trash") return sendJson(response, await listMindmapTrash());
 
   if (command === "restore_mindmap") {
-    await checkRevision(mindmapTrashPath(body.id), body.expectedRevision);
     const src = mindmapTrashPath(body.id);
     const dst = mindmapPath(body.id);
-    if (existsSync(dst)) throw apiError("A mindmap with this id already exists", "VALIDATION", 400);
-    await rename(src, dst);
+    await withPathLocks([src, dst], async () => {
+      await checkRevision(src, body.expectedRevision);
+      if (existsSync(dst)) throw apiError("A mindmap with this id already exists", "VALIDATION", 400);
+      await rename(src, dst);
+    });
     const mm = await readMindmapFile(dst);
     if (!mm) throw apiError("Failed to read restored mindmap", "IO", 500);
     return sendJson(response, mm);
   }
 
   if (command === "delete_mindmap_permanently") {
-    await checkRevision(mindmapTrashPath(body.id), body.expectedRevision);
-    await rm(mindmapTrashPath(body.id), { force: true });
+    const path = mindmapTrashPath(body.id);
+    await withPathLocks([path], async () => {
+      await checkRevision(path, body.expectedRevision);
+      await rm(path);
+    });
     response.writeHead(204);
     return response.end();
   }
@@ -506,6 +660,8 @@ createServer((request, response) => {
     return;
   }
   serveStatic(request, response);
-}).listen(port, "127.0.0.1", () => {
-  console.log(`XG221B is running at http://127.0.0.1:${port}`);
+}).listen(allowPortZero ? 0 : port, "127.0.0.1", function () {
+  const assignedPort = this.address().port;
+  console.log(`XG221B is running at http://127.0.0.1:${assignedPort}`);
+  if (allowPortZero) console.log(`ASSIGNED_PORT=${assignedPort}`);
 });

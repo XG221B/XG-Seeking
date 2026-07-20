@@ -1,18 +1,24 @@
 import { t } from './i18n.js';
 import { escapeHtml, formatDate, editorValueToBody, isEditorTarget } from './helpers.js';
-import { bodyToPreviewHtml } from './markdown.js';
+import { bodyToPreviewHtml, extractTags } from './markdown.js';
 import { invoke } from './api.js';
-import { state, pageLoadToken, noteSaveQueue, app } from './state.js';
-import { noteCoords, getNoteCoord, scheduleNoteSave, flushNoteSave, waitForNoteSaves, saveNote, syncNoteCoordToDisplay, updateSaveStatus, saveStatusText } from './coordinator.js';
+import { state, pageLoadToken, app, storageWarningHtml } from './state.js';
+import { noteCoords, getNoteCoord, scheduleNoteSave, flushNoteSave, waitForNoteSaves, syncNoteCoordToDisplay, saveStatusText, reloadLatestNote, saveAsNewNoteFromDraft } from './coordinator.js';
+
+document.addEventListener("xg:note-save-conflict", (event) => {
+  if (state.page === "notes" && !state.showTrash && state.selectedId === event.detail?.id) renderNotes();
+});
 
 // ── Notes ──
 
 function filteredNotes() {
   const keyword = state.query.trim().toLowerCase();
+  const tagKey = state.selectedTag;
   const source = state.showTrash ? state.trashNotes : state.notes;
-  return keyword
-    ? source.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(keyword))
-    : source;
+  let result = source;
+  if (keyword) result = result.filter((note) => `${note.title}\n${note.body}`.toLowerCase().includes(keyword));
+  if (tagKey && !state.showTrash) result = result.filter((note) => extractTags(note.body).some((t) => t.key === tagKey));
+  return result;
 }
 
 function selectedNote() {
@@ -49,7 +55,7 @@ function noteListHtml() {
 }
 
 function searchFeedbackText(prefix) {
-  if (!state.query.trim()) return "";
+  if (!state.query.trim() && !state.selectedTag) return "";
   const unit = t("foundUnit");
   return `${t(prefix || "found")} ${filteredNotes().length}${unit}`;
 }
@@ -120,12 +126,73 @@ function renderTrashFooter() {
   </div>`;
 }
 
-function renderNotes() {
-  syncNoteCoordToDisplay();
-  if (state.pageLoading && state.notes.length === 0 && state.trashNotes.length === 0) {
-    app.innerHTML = `<section class="notes"><div class="empty"><h2>${t("loadingMessage")}</h2></div></section>`;
+function computeActiveTags() {
+  if (state.showTrash) return [];
+  const counts = new Map();
+  for (const note of state.notes) {
+    try {
+      const tags = extractTags(note.body);
+      for (const t of tags) {
+        const entry = counts.get(t.key);
+        if (entry) {
+          entry.count++;
+        } else {
+          counts.set(t.key, { key: t.key, display: t.display, count: 1 });
+        }
+      }
+    } catch {
+      // Skip notes with problematic bodies
+    }
+  }
+  return Array.from(counts.values())
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function renderTagSelect() {
+  if (state.showTrash) return '<div class="tag-filter" id="tagFilter" style="display:none"></div>';
+  const tags = computeActiveTags();
+  const options = tags.map((t) => {
+    const selected = state.selectedTag === t.key ? " selected" : "";
+    return `<option value="${escapeHtml(t.key)}"${selected}>#${escapeHtml(t.display)} (${t.count})</option>`;
+  }).join("");
+  const visible = tags.length > 0 ? "" : "display:none";
+  return `<div class="tag-filter" id="tagFilter" style="${visible}">
+    <select class="tag-select" id="tagSelect">
+      <option value="">${t("allTags")}${state.notes.length ? " (" + state.notes.length + ")" : ""}</option>
+      ${options}
+    </select>
+  </div>`;
+}
+
+function updateTagSelect() {
+  const container = document.getElementById("tagFilter");
+  if (!container) return;
+  const select = document.getElementById("tagSelect");
+  if (!select) {
+    if (container.querySelector("select")) return;
     return;
   }
+  const currentValue = select.value;
+  const tags = computeActiveTags();
+  if (tags.length === 0) {
+    container.style.display = "none";
+    state.selectedTag = "";
+    return;
+  }
+  container.style.display = "";
+  const options = tags.map((t) => {
+    const selected = t.key === currentValue ? " selected" : "";
+    return `<option value="${escapeHtml(t.key)}"${selected}>#${escapeHtml(t.display)} (${t.count})</option>`;
+  }).join("");
+  select.innerHTML = `<option value="">${t("allTags")}${state.notes.length ? " (" + state.notes.length + ")" : ""}</option>${options}`;
+  if (!tags.some((t) => t.key === currentValue) && currentValue) {
+    state.selectedTag = "";
+    renderNoteListOnly();
+  }
+}
+
+function renderNotes() {
+  syncNoteCoordToDisplay();
   const selected = state.showTrash
     ? state.trashNotes.find((note) => note.id === state.selectedId)
     : state.notes.find((note) => note.id === state.selectedId);
@@ -146,10 +213,11 @@ function renderNotes() {
     ? (selected ? renderTrashEditor(selected) : renderTrashEmpty())
     : (selected ? renderRichEditor(selected) : renderEmpty());
 
-  app.innerHTML =
+  app.innerHTML = storageWarningHtml() +
     `<section class="notes">` +
       `<aside class="side">` +
         toolsHtml +
+        renderTagSelect() +
         `<div class="list">${noteListHtml()}</div>` +
         renderTrashFooter() +
       `</aside>` +
@@ -162,15 +230,21 @@ function renderNotes() {
 }
 
 function renderRichEditor(note) {
+  const inConflict = getNoteCoord(note.id).status === "conflict";
   const markdownToolbar = state.sourceMode
     ? `<button class="toolbar-btn" id="mdBold" title="${t("bold")} (Ctrl+B)"><strong>B</strong></button>
-      <button class="toolbar-btn" id="mdItalic" title="${t("italic")} (Ctrl+I)"><em>I</em></button>
-      <button class="toolbar-btn" id="mdCode" title="${t("inlineCode")}"><code>\`</code></button>
-      <button class="toolbar-btn" id="mdHeading" title="${t("heading")}">H</button>
-      <button class="toolbar-btn" id="mdQuote" title="${t("blockquote")}">&gt;</button>
-      <button class="toolbar-btn" id="mdList" title="${t("unorderedList")}">-</button>
-      <button class="toolbar-btn" id="mdCodeBlock" title="${t("codeBlock")}">#</button>
-      <span class="toolbar-sep"></span>`
+       <button class="toolbar-btn" id="mdItalic" title="${t("italic")} (Ctrl+I)"><em>I</em></button>
+       <button class="toolbar-btn" id="mdCode" title="${t("inlineCode")}"><code>\`</code></button>
+       <button class="toolbar-btn" id="mdHeading" title="${t("heading")}">H</button>
+       <button class="toolbar-btn" id="mdQuote" title="${t("blockquote")}">&gt;</button>
+       <button class="toolbar-btn" id="mdList" title="${t("unorderedList")}">-</button>
+       <button class="toolbar-btn" id="mdCodeBlock" title="${t("codeBlock")}">#</button>
+       <span class="toolbar-sep"></span>`
+    : "";
+
+  const conflictActions = inConflict
+    ? `<button class="toolbar-btn mode-btn" id="conflictReloadBtn" title="${t("conflictReload")}" aria-label="${t("conflictReload")}" data-conflict-id="${escapeHtml(note.id)}">${t("conflictReload")}</button>
+       <button class="toolbar-btn mode-btn" id="conflictSaveNewBtn" title="${t("conflictSaveAsNew")}" aria-label="${t("conflictSaveAsNew")}" data-conflict-id="${escapeHtml(note.id)}">${t("conflictSaveAsNew")}</button>`
     : "";
 
   return `<div class="form" id="form">` +
@@ -180,7 +254,8 @@ function renderRichEditor(note) {
       : `<textarea class="body markdown-source" id="body" placeholder="${t("placeholderBody")}">${escapeHtml(note.body)}</textarea>`) +
     `<div class="editor-toolbar mode-toolbar" aria-label="Editor mode">
       ${markdownToolbar}
-      <span class="save-status ${state.noteSaveStatus === "failed" ? "failed" : ""}" id="noteSaveStatus">${saveStatusText(state.noteSaveStatus)}</span>
+      <span class="save-status ${state.noteSaveStatus === "failed" || state.noteSaveStatus === "conflict" ? "failed" : ""}" id="noteSaveStatus">${saveStatusText(state.noteSaveStatus)}</span>
+      ${conflictActions}
       <button class="toolbar-btn mode-btn ${state.sourceMode ? "active" : ""}" id="editMode" title="${t("editToggle")}">Edit</button>
       <button class="toolbar-btn mode-btn ${!state.sourceMode ? "active" : ""}" id="previewMode" title="${t("previewToggle")}">Preview</button>
     </div>` +
@@ -259,6 +334,24 @@ function bindNotesEvents() {
     document.getElementById("editMode")?.addEventListener("click", () => switchNoteMode(true));
     document.getElementById("previewMode")?.addEventListener("click", () => switchNoteMode(false));
     bindMarkdownTools();
+
+    const conflictReloadBtn = document.getElementById("conflictReloadBtn");
+    if (conflictReloadBtn) {
+      const id = conflictReloadBtn.dataset.conflictId;
+      conflictReloadBtn.addEventListener("click", async () => {
+        if (!confirm(t("conflictReloadConfirm"))) return;
+        const ok = await reloadLatestNote(id);
+        if (ok) { renderNotes(); } else { const fb = document.getElementById("noteSaveStatus"); if (fb) { fb.textContent = t("conflictReloadFailed"); fb.classList.add("failed"); } }
+      });
+    }
+    const conflictSaveNewBtn = document.getElementById("conflictSaveNewBtn");
+    if (conflictSaveNewBtn) {
+      const id = conflictSaveNewBtn.dataset.conflictId;
+      conflictSaveNewBtn.addEventListener("click", async () => {
+        const r = await saveAsNewNoteFromDraft(id);
+        if (r.ok) { state.sourceMode = true; renderNotes(); } else { const fb = document.getElementById("noteSaveStatus"); if (fb) { fb.textContent = t("conflictSaveNewFailed"); fb.classList.add("failed"); } }
+      });
+    }
   } else {
     const restoreBtn = document.getElementById("restoreBtn");
     if (restoreBtn) {
@@ -271,7 +364,16 @@ function bindNotesEvents() {
   }
 
   bindListEvents();
-  if (!state.showTrash) bindEditorAutoSave();
+  if (!state.showTrash) {
+    const tagSelect = document.getElementById("tagSelect");
+    if (tagSelect) {
+      tagSelect.addEventListener("change", () => {
+        state.selectedTag = tagSelect.value;
+        renderNoteListOnly();
+      });
+    }
+    bindEditorAutoSave();
+  }
 }
 
 async function switchNoteMode(sourceMode) {
@@ -354,6 +456,7 @@ function bindEditorAutoSave() {
       if (note) {
         note.body = editorValueToBody(body.value);
         scheduleNoteSave(note.id);
+        updateTagSelect();
       }
     });
   }
@@ -368,7 +471,7 @@ async function loadNotes(token = pageLoadToken.current) {
 
     state.notes = notes;
     for (const n of notes) {
-      if (n.revision) { const c = getNoteCoord(n.id); c.revision = n.revision; }
+      if (n.revision) { const c = getNoteCoord(n.id); if (c.status !== "conflict") c.revision = n.revision; }
     }
     if (!state.selectedId && state.notes[0]) selectNote(state.notes[0].id);
     state.showTrash = false;
@@ -406,7 +509,7 @@ async function loadTrashSilent(token = pageLoadToken.current) {
     state.trashNotes = trashNotes;
     updateTrashBar();
   } catch {
-    // Silently ignore
+    state.storageWarningCount = Math.max(1, state.storageWarningCount);
   }
 }
 
@@ -452,6 +555,7 @@ async function createNote() {
 
 async function trashNote(id) {
   if (!id) return;
+  pageLoadToken.current += 1;
   if (id === state.selectedId) {
     const note = selectedNote();
     if (note) {
@@ -468,7 +572,13 @@ async function trashNote(id) {
   clearTimeout(c.timer);
   await waitForNoteSaves(id);
 
-  try { await invoke("delete_note", { id }); } catch (e) { alert(e); c.deleted = false; return; }
+  try {
+    await invoke("delete_note", { id, expectedRevision: c.revision || undefined });
+  } catch (e) {
+    alert(e?.code === "CONFLICT" ? t("saveConflict") : e);
+    c.deleted = false;
+    return;
+  }
   state.notes = state.notes.filter((note) => note.id !== id);
   noteCoords.delete(id);
   if (state.selectedId === id) selectNote(state.notes[0] ? state.notes[0].id : "");
@@ -476,8 +586,12 @@ async function trashNote(id) {
 }
 
 async function restoreNote(id) {
+  pageLoadToken.current += 1;
+  const trashed = state.trashNotes.find((note) => note.id === id);
   let restored;
-  try { restored = await invoke("restore_note", { id }); } catch (e) { alert(e); return; }
+  try {
+    restored = await invoke("restore_note", { id, expectedRevision: trashed?.revision || undefined });
+  } catch (e) { alert(e?.code === "CONFLICT" ? t("saveConflict") : e); return; }
   state.trashNotes = state.trashNotes.filter((n) => n.id !== id);
   state.notes.unshift(restored);
 
@@ -491,7 +605,10 @@ async function restoreNote(id) {
 
 async function deletePermanently(id) {
   if (!confirm(t("deleteForeverConfirm"))) return;
-  try { await invoke("delete_permanently", { id }); } catch (e) { alert(e); return; }
+  const trashed = state.trashNotes.find((note) => note.id === id);
+  try {
+    await invoke("delete_permanently", { id, expectedRevision: trashed?.revision || undefined });
+  } catch (e) { alert(e?.code === "CONFLICT" ? t("saveConflict") : e); return; }
   state.trashNotes = state.trashNotes.filter((n) => n.id !== id);
   if (state.trashNotes.length === 0) {
     state.showTrash = false;
@@ -504,9 +621,11 @@ async function deletePermanently(id) {
 
 async function clearAllTrash() {
   if (state.trashNotes.length === 0) return;
-  if (!confirm(`${t("clearTrashConfirm")}（${state.trashNotes.length} ${t("notesWillBeDeleted")}）`)) return;
+  if (!confirm(`${t("clearTrashConfirm")} (${state.trashNotes.length} ${t("notesWillBeDeleted")})`)) return;
   for (const note of state.trashNotes) {
-    try { await invoke("delete_permanently", { id: note.id }); } catch (e) { alert(e); return; }
+    try {
+      await invoke("delete_permanently", { id: note.id, expectedRevision: note.revision || undefined });
+    } catch (e) { alert(e?.code === "CONFLICT" ? t("saveConflict") : e); return; }
   }
   state.trashNotes = [];
   state.showTrash = false;

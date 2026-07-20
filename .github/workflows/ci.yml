@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: node --check local-server.mjs
+      - run: node --check tests/smoke/smoke-test.mjs
+      - run: node --check tests/smoke/ui-smoke.mjs
+      - run: node --check tests/smoke/stage1-regression.mjs
+      - run: node --check tests/smoke/phase4-smoke.mjs
+      - run: node --check tests/smoke/helper.mjs
+      - run: node --check scripts/check-versions.mjs
+      - run: npm run web:build
+      - run: npm run check-versions
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+      - name: Set Chrome path
+        run: echo "CHROME_PATH=$(node -e "const{chromium}=require('playwright');console.log(chromium.executablePath())")" >> $GITHUB_ENV
+      - run: npm run qa
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install system deps (Tauri)
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+      - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo check
+        working-directory: src-tauri
+      - run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test
+        working-directory: src-tauri

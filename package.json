@@ -1,6 +1,6 @@
 {
   "name": "xg221b",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A lightweight local-first desktop notes app.",
   "private": true,
   "type": "module",
@@ -14,7 +14,10 @@
     "smoke": "node tests/smoke/smoke-test.mjs",
     "smoke:ui": "node tests/smoke/ui-smoke.mjs",
     "smoke:stage1": "node tests/smoke/stage1-regression.mjs",
-    "qa": "npm run smoke && npm run smoke:ui && npm run smoke:stage1",
+    "smoke:phase4": "node tests/smoke/phase4-smoke.mjs",
+    "test:markdown": "node tests/markdown-test.mjs",
+    "qa": "npm run test:markdown && npm run smoke && npm run smoke:ui && npm run smoke:stage1 && npm run smoke:phase4",
+    "check-versions": "node scripts/check-versions.mjs",
     "web:dev": "vite --host 127.0.0.1 --port 1420",
     "web:build": "vite build",
     "web:preview": "vite preview --host 127.0.0.1"
@@ -25,6 +28,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.4",
+    "playwright": "^1.61.1",
     "vite": "^7.1.7"
   }
 }

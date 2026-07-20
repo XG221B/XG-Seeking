@@ -50,7 +50,8 @@ Storage format: JSON file (`{id}.json`)
 ```json
 {
   "language": "zh | en",
-  "title": "string"
+  "title": "string",
+  "theme": "system | light | dark"
 }
 ```
 
@@ -89,7 +90,7 @@ Storage format: JSON file (`settings.json`)
 | Command | Method | Payload | Response |
 |---|---|---|---|
 | `get_settings` | POST | `{}` | `Settings` |
-| `save_settings` | POST | `{ language, title }` | 204 No Content |
+| `save_settings` | POST | `{ language, title, theme }` | 204 No Content |
 
 ---
 
@@ -211,3 +212,14 @@ When the frontend receives a CONFLICT error:
 3. Offer user options:
    a. Reload latest version from backend (discards local changes)
    b. Save as new note/mindmap (preserves local changes under a new ID)
+
+## 10. Hardened Mutation And Health Rules
+
+- `save_note` and `save_mindmap` update existing active files only. Only `create_*` may create a file.
+- Revision checking and the following write, move, or delete run under the same per-path backend lock.
+- Temporary write names use UUIDs. Backup cleanup failure after a successful replacement is a warning, not a failed save.
+- Frontend delete, restore, and permanent-delete calls include the revision of the item being mutated.
+- `get_storage_warnings` returns non-sensitive unreadable-file counts. Bad files remain untouched and do not prevent readable items from loading.
+- Mindmaps are limited to 1 MiB serialized size, 5,000 nodes, depth 100, and 10,000 Unicode code points per node.
+- Node browser-mode `/api/*` requests require `POST` and `application/json`; Host must be loopback and Origin, when present, must match it exactly.
+- Tauri window close is intercepted until dirty note and mindmap saves complete successfully.

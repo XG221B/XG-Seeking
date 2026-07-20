@@ -1,17 +1,10 @@
+use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
-
-fn now_millis() -> Result<u128, String> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())
-        .map(|duration| duration.as_millis())
-}
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -19,12 +12,42 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+pub fn with_file_locks<T, F>(paths: &[PathBuf], operation: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String>,
+{
+    let lock_root = std::env::temp_dir().join("xg-seeking-locks");
+    fs::create_dir_all(&lock_root).map_err(|e| e.to_string())?;
+    let mut ordered = paths.to_vec();
+    ordered.sort();
+    ordered.dedup();
+    let mut locks = Vec::with_capacity(ordered.len());
+    for path in ordered {
+        let key = sha256_hex(path.to_string_lossy().as_bytes());
+        let lock_path = lock_root.join(format!("{key}.lock"));
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .map_err(|e| e.to_string())?;
+        file.lock_exclusive().map_err(|e| e.to_string())?;
+        locks.push(file);
+    }
+    let result = operation();
+    for file in locks.iter().rev() {
+        let _ = FileExt::unlock(file);
+    }
+    result
+}
+
 pub fn atomic_write_text(path: &Path, contents: &str) -> Result<(), String> {
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "Invalid file name".to_string())?;
-    let temp = path.with_file_name(format!(".{file_name}.{}.tmp", now_millis()?));
+    let temp = path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
     let backup = path.with_file_name(format!(".{file_name}.bak"));
 
     {
@@ -49,12 +72,14 @@ pub fn atomic_write_text(path: &Path, contents: &str) -> Result<(), String> {
         return Err(error.to_string());
     }
 
-    if let Ok(file) = OpenOptions::new().read(true).write(true).open(path) {
-        let _ = file.sync_all();
+    if let Some(parent) = path.parent() {
+        if let Ok(directory) = File::open(parent) {
+            let _ = directory.sync_all();
+        }
     }
 
     if backup.exists() {
-        fs::remove_file(backup).map_err(|e| e.to_string())?;
+        let _ = fs::remove_file(backup);
     }
 
     Ok(())
@@ -122,7 +147,10 @@ pub fn cleanup_tmp_files(dirs: &[PathBuf]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{env, fs};
+    use std::{
+        env, fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn atomic_write_text_creates_and_replaces_file() {

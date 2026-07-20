@@ -1,17 +1,17 @@
 import { t } from './i18n.js';
 import { escapeHtml, formatDate, generateId, isEditorTarget } from './helpers.js';
 import { invoke } from './api.js';
-import { state, pageLoadToken, mindmapSaveQueue, app } from './state.js';
-import { mindmapCoords, getMindmapCoord, scheduleMindmapSave, flushMindmapSave, waitForMindmapSaves, syncMindmapCoordToDisplay, updateSaveStatus, saveStatusText } from './coordinator.js';
+import { state, pageLoadToken, app, storageWarningHtml } from './state.js';
+import { mindmapCoords, getMindmapCoord, scheduleMindmapSave, flushMindmapSave, waitForMindmapSaves, syncMindmapCoordToDisplay, saveStatusText, reloadLatestMindmap, saveAsNewMindmapFromDraft } from './coordinator.js';
+
+document.addEventListener("xg:mindmap-save-conflict", (event) => {
+  if (state.page === "mindmaps" && !state.showMindmapTrash && state.selectedMindmapId === event.detail?.id) renderMindmaps();
+});
 
 // ── Mindmaps ──
 
 function renderMindmaps() {
   syncMindmapCoordToDisplay();
-  if (state.pageLoading && state.mindmaps.length === 0 && state.mindmapTrash.length === 0) {
-    app.innerHTML = `<section class="notes"><div class="empty"><h2>${t("loadingMessage")}</h2></div></section>`;
-    return;
-  }
   const source = state.showMindmapTrash ? state.mindmapTrash : state.mindmaps;
   const selected = source.find((m) => m.id === state.selectedMindmapId);
   const keyword = state.mindmapQuery.trim().toLowerCase();
@@ -32,7 +32,7 @@ function renderMindmaps() {
 
   const feedbackText = keyword ? `${t("found")} ${filtered.length}${t("foundUnit")}` : "";
 
-  app.innerHTML =
+  app.innerHTML = storageWarningHtml() +
     `<section class="notes">` +
       `<aside class="side">` +
         `<div class="tools">
@@ -58,11 +58,18 @@ function renderMindmaps() {
 }
 
 function renderMindmapCanvas(mm) {
+  const inConflict = getMindmapCoord(mm.id).status === "conflict";
+  const conflictActions = inConflict
+    ? `<button class="toolbar-btn mode-btn" id="conflictReloadMMBtn" title="${t("conflictReload")}" aria-label="${t("conflictReload")}" data-conflict-id="${escapeHtml(mm.id)}">${t("conflictReload")}</button>
+       <button class="toolbar-btn mode-btn" id="conflictSaveNewMMBtn" title="${t("conflictSaveAsNewMM")}" aria-label="${t("conflictSaveAsNewMM")}" data-conflict-id="${escapeHtml(mm.id)}">${t("conflictSaveAsNewMM")}</button>`
+    : "";
+
   return `<div class="mm-canvas" id="mmCanvas">
     <div class="mm-toolbar">
       <input class="mm-title-input" id="mmTitle" value="${escapeHtml(mm.title)}" placeholder="${t("mindmapUntitled")}">
       <div class="mm-shortcuts">
-        <span class="save-status ${state.mindmapSaveStatus === "failed" ? "failed" : ""}" id="mindmapSaveStatus">${saveStatusText(state.mindmapSaveStatus)}</span>
+        <span class="save-status ${state.mindmapSaveStatus === "failed" || state.mindmapSaveStatus === "conflict" ? "failed" : ""}" id="mindmapSaveStatus">${saveStatusText(state.mindmapSaveStatus)}</span>
+        ${conflictActions}
         <span>${t("mindmapShortcuts")}</span>
         <span class="mm-edit-hint">${t("mindmapEditHint")}</span>
       </div>
@@ -111,6 +118,25 @@ function bindMindmapEvents() {
     ? state.mindmapTrash.find((m) => m.id === state.selectedMindmapId)
     : state.mindmaps.find((m) => m.id === state.selectedMindmapId);
   if (!mm || state.showMindmapTrash) return;
+
+  // Conflict buttons
+  const conflictReloadBtn = document.getElementById("conflictReloadMMBtn");
+  if (conflictReloadBtn) {
+    const id = conflictReloadBtn.dataset.conflictId;
+    conflictReloadBtn.addEventListener("click", async () => {
+      if (!confirm(t("conflictReloadConfirm"))) return;
+      const ok = await reloadLatestMindmap(id);
+      if (ok) { renderMindmaps(); } else { const fb = document.getElementById("mindmapSaveStatus"); if (fb) { fb.textContent = t("conflictReloadFailed"); fb.classList.add("failed"); } }
+    });
+  }
+  const conflictSaveNewBtn = document.getElementById("conflictSaveNewMMBtn");
+  if (conflictSaveNewBtn) {
+    const id = conflictSaveNewBtn.dataset.conflictId;
+    conflictSaveNewBtn.addEventListener("click", async () => {
+      const r = await saveAsNewMindmapFromDraft(id);
+      if (r.ok) { renderMindmaps(); } else { const fb = document.getElementById("mindmapSaveStatus"); if (fb) { fb.textContent = t("conflictSaveNewMMFailed"); fb.classList.add("failed"); } }
+    });
+  }
 
   // Title — update sidebar on change
   const titleInput = document.getElementById("mmTitle");
@@ -196,7 +222,7 @@ function renderNode(node, depth = 0) {
   const isEditing = state.editingNode && state.selectedNodeId === node.id;
   const sizeClass = depth === 0 ? "mm-text-lg" : depth === 1 ? "mm-text-md" : "mm-text-sm";
   const textContent = escapeHtml(node.text).replace(/\n/g, "<br>");
-  return `<div class="mm-node-wrapper" style="margin-left: ${depth * 24}px" data-node-id="${node.id}">
+  return `<div class="mm-node-wrapper" style="--mm-depth: ${depth}" data-node-id="${node.id}">
     <div class="mm-node ${state.selectedNodeId === node.id ? "selected" : ""}">
       ${hasChildren
         ? `<button class="mm-toggle" data-toggle="${node.id}">${node.collapsed ? "▸" : "▾"}</button>`
@@ -380,7 +406,7 @@ async function loadMindmaps(token = pageLoadToken.current) {
 
     state.mindmaps = mindmaps;
     for (const m of mindmaps) {
-      if (m.revision) { const c = getMindmapCoord(m.id); c.revision = m.revision; }
+      if (m.revision) { const c = getMindmapCoord(m.id); if (c.status !== "conflict") c.revision = m.revision; }
     }
     state.showMindmapTrash = false;
     if (!state.selectedMindmapId && state.mindmaps[0]) state.selectedMindmapId = state.mindmaps[0].id;
@@ -398,7 +424,9 @@ async function loadMindmapTrashSilent(token = pageLoadToken.current) {
     const mindmapTrash = await invoke("list_mindmap_trash");
     if (token !== pageLoadToken.current || state.page !== "mindmaps") return;
     state.mindmapTrash = mindmapTrash;
-  } catch {}
+  } catch {
+    state.storageWarningCount = Math.max(1, state.storageWarningCount);
+  }
 }
 
 let creatingMindmap = false;
@@ -430,6 +458,7 @@ async function saveMindmap(mm, options = {}) {
 }
 
 async function trashMindmap(id) {
+  pageLoadToken.current += 1;
   const mm = state.mindmaps.find((item) => item.id === id);
   if (mm) {
     const saved = await flushMindmapSave(id);
@@ -439,7 +468,13 @@ async function trashMindmap(id) {
   c.deleted = true;
   clearTimeout(c.timer);
   await waitForMindmapSaves(id);
-  try { await invoke("delete_mindmap", { id }); } catch (e) { alert(e); c.deleted = false; return; }
+  try {
+    await invoke("delete_mindmap", { id, expectedRevision: c.revision || undefined });
+  } catch (e) {
+    alert(e?.code === "CONFLICT" ? t("saveConflict") : e);
+    c.deleted = false;
+    return;
+  }
   state.mindmaps = state.mindmaps.filter((m) => m.id !== id);
   mindmapCoords.delete(id);
   if (state.selectedMindmapId === id) state.selectedMindmapId = state.mindmaps[0]?.id || "";
@@ -448,8 +483,12 @@ async function trashMindmap(id) {
 }
 
 async function restoreMindmap(id) {
+  pageLoadToken.current += 1;
+  const trashed = state.mindmapTrash.find((map) => map.id === id);
   let mm;
-  try { mm = await invoke("restore_mindmap", { id }); } catch (e) { alert(e); return; }
+  try {
+    mm = await invoke("restore_mindmap", { id, expectedRevision: trashed?.revision || undefined });
+  } catch (e) { alert(e?.code === "CONFLICT" ? t("saveConflict") : e); return; }
   state.mindmapTrash = state.mindmapTrash.filter((m) => m.id !== id);
   state.mindmaps.unshift(mm);
   if (state.mindmapTrash.length === 0) state.showMindmapTrash = false;
@@ -476,7 +515,9 @@ async function clearAllMindmapTrash() {
   if (state.mindmapTrash.length === 0) return;
   if (!confirm(t("mindmapClearConfirm"))) return;
   for (const m of state.mindmapTrash) {
-    try { await invoke("delete_mindmap_permanently", { id: m.id }); } catch (e) { alert(e); return; }
+    try {
+      await invoke("delete_mindmap_permanently", { id: m.id, expectedRevision: m.revision || undefined });
+    } catch (e) { alert(e?.code === "CONFLICT" ? t("saveConflict") : e); return; }
   }
   state.mindmapTrash = [];
   state.showMindmapTrash = false;

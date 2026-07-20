@@ -1,9 +1,7 @@
 import { t } from './i18n.js';
-import { invoke, ApiError } from './api.js';
+import { invoke } from './api.js';
 import { formatDate, editorValueToBody } from './helpers.js';
-import { state, pageLoadToken, noteSaveQueue, mindmapSaveQueue } from './state.js';
-
-// ── Per-item save coordinator ──
+import { state, noteSaveQueue, mindmapSaveQueue } from './state.js';
 
 const noteCoords = new Map();
 const mindmapCoords = new Map();
@@ -11,7 +9,7 @@ const mindmapCoords = new Map();
 function getNoteCoord(id) {
   let c = noteCoords.get(id);
   if (!c) {
-    c = { draft: null, dirty: false, timer: 0, status: "", seq: 0, deleted: false, revision: null };
+    c = { draft: null, dirty: false, timer: 0, status: "", deleted: false, revision: null, conflictRevision: null, version: 0 };
     noteCoords.set(id, c);
   }
   return c;
@@ -20,29 +18,10 @@ function getNoteCoord(id) {
 function getMindmapCoord(id) {
   let c = mindmapCoords.get(id);
   if (!c) {
-    c = { draft: null, dirty: false, timer: 0, status: "", seq: 0, deleted: false, revision: null };
+    c = { draft: null, dirty: false, timer: 0, status: "", deleted: false, revision: null, conflictRevision: null, version: 0 };
     mindmapCoords.set(id, c);
   }
   return c;
-}
-
-function snapshotCurrentNote() {
-  const id = state.selectedId;
-  if (!id || state.showTrash) return null;
-  const titleField = document.getElementById("title");
-  const bodyField = document.getElementById("body");
-  if (!titleField) return null;
-  return {
-    id,
-    title: titleField.value,
-    body: bodyField ? editorValueToBody(bodyField.value) : "",
-  };
-}
-
-function snapshotCurrentMindmap() {
-  const mm = getCurrentMindmap();
-  if (!mm) return null;
-  return JSON.parse(JSON.stringify(mm));
 }
 
 function updateNoteCoordStatus(id, status) {
@@ -53,7 +32,10 @@ function updateNoteCoordStatus(id, status) {
     const el = document.getElementById("noteSaveStatus");
     if (el) {
       el.textContent = saveStatusText(status);
-      el.classList.toggle("failed", status === "failed");
+      el.classList.toggle("failed", status === "failed" || status === "conflict");
+    }
+    if (status === "conflict") {
+      document.dispatchEvent(new CustomEvent("xg:note-save-conflict", { detail: { id } }));
     }
   }
 }
@@ -66,7 +48,10 @@ function updateMindmapCoordStatus(id, status) {
     const el = document.getElementById("mindmapSaveStatus");
     if (el) {
       el.textContent = saveStatusText(status);
-      el.classList.toggle("failed", status === "failed");
+      el.classList.toggle("failed", status === "failed" || status === "conflict");
+    }
+    if (status === "conflict") {
+      document.dispatchEvent(new CustomEvent("xg:mindmap-save-conflict", { detail: { id } }));
     }
   }
 }
@@ -84,7 +69,7 @@ function syncNoteCoordToDisplay() {
   const el = document.getElementById("noteSaveStatus");
   if (el) {
     el.textContent = saveStatusText(c.status);
-    el.classList.toggle("failed", c.status === "failed");
+    el.classList.toggle("failed", c.status === "failed" || c.status === "conflict");
   }
 }
 
@@ -101,7 +86,7 @@ function syncMindmapCoordToDisplay() {
   const el = document.getElementById("mindmapSaveStatus");
   if (el) {
     el.textContent = saveStatusText(c.status);
-    el.classList.toggle("failed", c.status === "failed");
+    el.classList.toggle("failed", c.status === "failed" || c.status === "conflict");
   }
 }
 
@@ -113,22 +98,14 @@ function saveStatusText(status) {
   return "";
 }
 
-function updateSaveStatus(target, status) {
-  if (target === "note") state.noteSaveStatus = status;
-  if (target === "mindmap") state.mindmapSaveStatus = status;
-  const id = target === "note" ? "noteSaveStatus" : "mindmapSaveStatus";
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = saveStatusText(status);
-  el.classList.toggle("failed", status === "failed");
-}
-
 function queueById(queue, id, task) {
   const previous = queue.get(id) || Promise.resolve();
   const current = previous.catch(() => {}).then(task);
-  const tracked = current.finally(() => {
+  let tracked;
+  const cleanup = () => {
     if (queue.get(id) === tracked) queue.delete(id);
-  });
+  };
+  tracked = current.then(cleanup, cleanup);
   queue.set(id, tracked);
   return current;
 }
@@ -148,38 +125,49 @@ async function waitForMindmapSaves(id) {
 function scheduleNoteSave(id) {
   const c = getNoteCoord(id);
   if (c.deleted) return;
+  const note = state.notes.find((item) => item.id === id);
+  if (!note) return;
+  c.draft = { id, title: note.title, body: note.body };
   c.dirty = true;
+  c.version++;
   clearTimeout(c.timer);
+  if (c.status === "conflict") return;
   c.timer = setTimeout(() => flushNoteSave(id).catch(() => {}), 500);
 }
 
 async function flushNoteSave(id) {
   const c = getNoteCoord(id);
+  if (c.status === "conflict") return false;
   if (c.deleted || !c.dirty) return true;
   clearTimeout(c.timer);
 
   const note = state.notes.find((n) => n.id === id);
   if (!note) return true;
 
-  const snapshot = { id, title: note.title, body: note.body };
-  if (c.revision) snapshot.expectedRevision = c.revision;
-  c.draft = snapshot;
+  if (!c.draft) c.draft = { id, title: note.title, body: note.body };
+  const snapshot = { ...c.draft };
 
-  const seq = ++c.seq;
+  const capturedVersion = c.version;
   updateNoteCoordStatus(id, "pending");
   try {
-    const saved = await queueById(noteSaveQueue, id, () => invoke("save_note", snapshot));
+    const saved = await queueById(noteSaveQueue, id, () => {
+      const payload = { ...snapshot };
+      if (c.revision) payload.expectedRevision = c.revision;
+      return invoke("save_note", payload);
+    });
     if (c.deleted) return true;
     if (saved.revision) c.revision = saved.revision;
-    const existing = state.notes.find((n) => n.id === saved.id);
-    if (existing) {
-      existing.title = saved.title;
-      existing.body = saved.body;
-      existing.updatedAt = saved.updatedAt;
-      if (saved.revision) existing.revision = saved.revision;
-    }
-    if (seq === c.seq) {
+    if (capturedVersion === c.version) {
+      const existing = state.notes.find((n) => n.id === saved.id);
+      if (existing) {
+        existing.title = saved.title;
+        existing.body = saved.body;
+        existing.updatedAt = saved.updatedAt;
+        if (saved.revision) existing.revision = saved.revision;
+      }
       c.dirty = false;
+      c.draft = null;
+      c.conflictRevision = null;
       updateNoteCoordStatus(id, "saved");
       if (state.selectedId === id) {
         const activeTime = document.querySelector(".note-row.active time");
@@ -188,83 +176,77 @@ async function flushNoteSave(id) {
         if (activeTitle) activeTitle.textContent = saved.title;
       }
       setTimeout(() => {
-        if (seq === c.seq && c.status === "saved") updateNoteCoordStatus(id, "");
+        if (capturedVersion === c.version && c.status === "saved") updateNoteCoordStatus(id, "");
       }, 1400);
     }
     return true;
   } catch (error) {
     if (c.deleted) return true;
     if (error.code === "CONFLICT") {
-      if (error.currentRevision) c.revision = error.currentRevision;
-      if (seq === c.seq) updateNoteCoordStatus(id, "conflict");
-      return false;
-    }
-    if (seq === c.seq) {
+      c.conflictRevision = error.currentRevision || null;
+      clearTimeout(c.timer);
+      updateNoteCoordStatus(id, "conflict");
+    } else if (capturedVersion === c.version) {
       updateNoteCoordStatus(id, "failed");
     }
     return false;
   }
 }
 
-async function saveNote(options = {}) {
-  if (!state.selectedId || state.showTrash) return true;
-  const note = selectedNote();
-  if (!note) return true;
-  return flushNoteSave(state.selectedId).then((ok) => {
-    if (!ok && options.showAlert) alert(t("saveFailed"));
-    return ok;
-  });
-}
-
 function scheduleMindmapSave(mm) {
   const c = getMindmapCoord(mm.id);
   if (c.deleted) return;
-  c.dirty = true;
-  clearTimeout(c.timer);
   c.draft = JSON.parse(JSON.stringify(mm));
+  c.dirty = true;
+  c.version++;
+  clearTimeout(c.timer);
+  if (c.status === "conflict") return;
   c.timer = setTimeout(() => flushMindmapSave(mm.id).catch(() => {}), 500);
 }
 
 async function flushMindmapSave(id) {
   const c = getMindmapCoord(id);
+  if (c.status === "conflict") return false;
   if (c.deleted || !c.dirty) return true;
   clearTimeout(c.timer);
 
   const snapshot = c.draft;
   if (!snapshot) return true;
 
-  const payload = { mm: snapshot };
-  if (c.revision) payload.expectedRevision = c.revision;
-
-  const seq = ++c.seq;
+  const capturedVersion = c.version;
   updateMindmapCoordStatus(id, "pending");
   try {
-    const saved = await queueById(mindmapSaveQueue, id, () => invoke("save_mindmap", payload));
+    const saved = await queueById(mindmapSaveQueue, id, () => {
+      const payload = { mm: snapshot };
+      if (c.revision) payload.expectedRevision = c.revision;
+      return invoke("save_mindmap", payload);
+    });
     if (c.deleted) return true;
     if (saved.revision) c.revision = saved.revision;
-    const existing = state.mindmaps.find((item) => item.id === saved.id);
-    if (existing) {
-      existing.title = saved.title;
-      existing.updatedAt = saved.updatedAt;
-      existing.nodes = saved.nodes;
-      if (saved.revision) existing.revision = saved.revision;
-    }
-    if (seq === c.seq) {
+    if (capturedVersion === c.version) {
+      const existing = state.mindmaps.find((item) => item.id === saved.id);
+      if (existing) {
+        existing.title = saved.title;
+        existing.updatedAt = saved.updatedAt;
+        existing.nodes = saved.nodes;
+        if (saved.revision) existing.revision = saved.revision;
+      }
       c.dirty = false;
+      c.draft = null;
+      c.conflictRevision = null;
       updateMindmapCoordStatus(id, "saved");
       setTimeout(() => {
-        if (seq === c.seq && c.status === "saved") updateMindmapCoordStatus(id, "");
+        if (capturedVersion === c.version && c.status === "saved") updateMindmapCoordStatus(id, "");
       }, 1400);
     }
     return true;
   } catch (error) {
     if (c.deleted) return true;
     if (error.code === "CONFLICT") {
-      if (error.currentRevision) c.revision = error.currentRevision;
-      if (seq === c.seq) updateMindmapCoordStatus(id, "conflict");
-      return false;
-    }
-    if (seq === c.seq) {
+      c.conflictRevision = error.currentRevision || null;
+      clearTimeout(c.timer);
+      updateMindmapCoordStatus(id, "conflict");
+    } else if (capturedVersion === c.version) {
       updateMindmapCoordStatus(id, "failed");
     }
     return false;
@@ -294,40 +276,153 @@ async function flushAllDirty() {
       promises.push(flushMindmapSave(id));
     }
   }
-  await Promise.allSettled(promises);
+  const results = await Promise.allSettled(promises);
+  return results.every((result) => result.status === "fulfilled" && result.value === true);
 }
 
-// Circular reference: selectedNote is in notes-view, so resolve lazily
 function selectedNote() {
   const source = state.showTrash ? state.trashNotes : state.notes;
   return source.find((note) => note.id === state.selectedId) || null;
 }
 
-// Internal helper used by saveNote (resolved lazily to avoid circular imports)
 function getCurrentMindmap() {
   return state.mindmaps.find((m) => m.id === state.selectedMindmapId) || null;
 }
 
+// Conflict resolution is DOM-free; callers own confirmation and feedback UI.
+
+async function reloadLatestNote(id) {
+  if (!id) return false;
+  const c = getNoteCoord(id);
+  try {
+    const notes = await invoke("list_notes");
+    const refreshed = notes.find((n) => n.id === id);
+    if (!refreshed) return false;
+    const existing = state.notes.find((n) => n.id === id);
+    if (existing) {
+      existing.title = refreshed.title; existing.body = refreshed.body;
+      existing.updatedAt = refreshed.updatedAt;
+      if (refreshed.revision) existing.revision = refreshed.revision;
+    }
+    c.revision = refreshed.revision; c.conflictRevision = null; c.dirty = false; c.draft = null; c.version++;
+    updateNoteCoordStatus(id, "");
+    return true;
+  } catch { return false; }
+}
+
+async function saveAsNewNoteFromDraft(originalId) {
+  const note = state.notes.find((n) => n.id === originalId);
+  if (!note) return { ok: false };
+  const c = getNoteCoord(originalId);
+  const draft = { ...(c.draft || { id: originalId, title: note.title, body: note.body }) };
+  delete draft.expectedRevision;
+  let newNote = null;
+  try {
+    newNote = await invoke("create_note", { title: draft.title || t("untitled") });
+    const newCoord = getNoteCoord(newNote.id);
+    newCoord.revision = newNote.revision || null;
+    newCoord.draft = { id: newNote.id, title: draft.title || t("untitled"), body: draft.body || "" };
+    newCoord.dirty = true;
+    state.notes.unshift(newNote);
+    newNote.title = newCoord.draft.title;
+    newNote.body = newCoord.draft.body;
+    const payload = { ...newCoord.draft };
+    if (newCoord.revision) payload.expectedRevision = newCoord.revision;
+    const saved = await queueById(noteSaveQueue, newNote.id, () => invoke("save_note", payload));
+    newCoord.revision = saved.revision || newCoord.revision;
+    newCoord.dirty = false;
+    newCoord.draft = null;
+    updateNoteCoordStatus(newNote.id, "saved");
+    newNote.title = saved.title; newNote.body = saved.body; newNote.updatedAt = saved.updatedAt;
+    if (saved.revision) newNote.revision = saved.revision;
+    c.dirty = false; c.draft = null; c.conflictRevision = null; c.version++;
+    updateNoteCoordStatus(originalId, "");
+    state.selectedId = newNote.id;
+    return { ok: true, newId: newNote.id };
+  } catch {
+    if (newNote) updateNoteCoordStatus(newNote.id, "failed");
+    updateNoteCoordStatus(originalId, "conflict");
+    return { ok: false, newId: newNote?.id || "" };
+  }
+}
+
+async function reloadLatestMindmap(id) {
+  if (!id) return false;
+  const c = getMindmapCoord(id);
+  try {
+    const maps = await invoke("list_mindmaps");
+    const refreshed = maps.find((m) => m.id === id);
+    if (!refreshed) return false;
+    const existing = state.mindmaps.find((m) => m.id === id);
+    if (existing) {
+      existing.title = refreshed.title; existing.updatedAt = refreshed.updatedAt;
+      existing.nodes = refreshed.nodes;
+      if (refreshed.revision) existing.revision = refreshed.revision;
+    }
+    c.revision = refreshed.revision; c.conflictRevision = null; c.dirty = false; c.draft = null; c.version++;
+    updateMindmapCoordStatus(id, "");
+    return true;
+  } catch { return false; }
+}
+
+async function saveAsNewMindmapFromDraft(originalId) {
+  const mm = state.mindmaps.find((m) => m.id === originalId);
+  if (!mm) return { ok: false };
+  const c = getMindmapCoord(originalId);
+  const draft = JSON.parse(JSON.stringify(c.draft || mm));
+  delete draft.expectedRevision;
+  let newMm = null;
+  try {
+    newMm = await invoke("create_mindmap", { title: draft.title || t("mindmapUntitled") });
+    const newCoord = getMindmapCoord(newMm.id);
+    newCoord.revision = newMm.revision || null;
+    newCoord.draft = { ...draft, id: newMm.id, title: draft.title || t("mindmapUntitled"), updatedAt: Date.now() };
+    delete newCoord.draft.revision;
+    newCoord.dirty = true;
+    state.mindmaps.unshift(newCoord.draft);
+    const payload = { mm: JSON.parse(JSON.stringify(newCoord.draft)) };
+    if (newCoord.revision) payload.expectedRevision = newCoord.revision;
+    const saved = await queueById(mindmapSaveQueue, newMm.id, () => invoke("save_mindmap", payload));
+    newCoord.revision = saved.revision || newCoord.revision;
+    newCoord.dirty = false;
+    newCoord.draft = null;
+    updateMindmapCoordStatus(newMm.id, "saved");
+    const index = state.mindmaps.findIndex((item) => item.id === newMm.id);
+    if (index >= 0) state.mindmaps[index] = saved;
+    c.dirty = false; c.draft = null; c.conflictRevision = null; c.version++;
+    updateMindmapCoordStatus(originalId, "");
+    state.selectedMindmapId = newMm.id; state.selectedNodeId = "";
+    return { ok: true, newId: newMm.id };
+  } catch {
+    if (newMm) updateMindmapCoordStatus(newMm.id, "failed");
+    updateMindmapCoordStatus(originalId, "conflict");
+    return { ok: false, newId: newMm?.id || "" };
+  }
+}
+
+function snapshotCurrentNote() {
+  const id = state.selectedId;
+  if (!id || state.showTrash) return null;
+  const note = state.notes.find((n) => n.id === id);
+  if (!note) return null;
+  return { id, title: note.title, body: note.body };
+}
+
+function snapshotCurrentMindmap() {
+  const mm = getCurrentMindmap();
+  return mm ? JSON.parse(JSON.stringify(mm)) : null;
+}
+
 export {
-  noteCoords,
-  mindmapCoords,
-  getNoteCoord,
-  getMindmapCoord,
+  noteCoords, mindmapCoords, getNoteCoord, getMindmapCoord,
   snapshotCurrentNote,
   snapshotCurrentMindmap,
-  updateNoteCoordStatus,
-  updateMindmapCoordStatus,
-  syncNoteCoordToDisplay,
-  syncMindmapCoordToDisplay,
+  updateNoteCoordStatus, updateMindmapCoordStatus,
+  syncNoteCoordToDisplay, syncMindmapCoordToDisplay,
   saveStatusText,
-  updateSaveStatus,
-  queueById,
-  waitForNoteSaves,
-  waitForMindmapSaves,
-  scheduleNoteSave,
-  flushNoteSave,
-  saveNote,
-  scheduleMindmapSave,
-  flushMindmapSave,
+  queueById, waitForNoteSaves, waitForMindmapSaves,
+  scheduleNoteSave, flushNoteSave, scheduleMindmapSave, flushMindmapSave,
   flushAllDirty,
+  reloadLatestNote, saveAsNewNoteFromDraft,
+  reloadLatestMindmap, saveAsNewMindmapFromDraft,
 };

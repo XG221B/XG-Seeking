@@ -32,6 +32,38 @@ fn recover_on_startup(app: &AppHandle) {
 }
 
 #[tauri::command]
+fn get_data_directory(app: AppHandle) -> Result<serde_json::Value, String> {
+    let dir = app_data(&app)?;
+    Ok(serde_json::json!({ "path": dir.to_string_lossy() }))
+}
+
+#[tauri::command]
+fn get_storage_warnings(app: AppHandle) -> Result<serde_json::Value, String> {
+    let dir = app_data(&app)?;
+    let (notes, trash_notes) = notes::storage_warning_count(&dir);
+    let (mindmaps, mindmap_trash) = mindmap::storage_warning_count(&dir);
+    let settings = usize::from(!settings::load(&dir)?.warnings.is_empty());
+    Ok(serde_json::json!({
+        "notes": notes,
+        "trashNotes": trash_notes,
+        "mindmaps": mindmaps,
+        "mindmapTrash": mindmap_trash,
+        "settings": settings,
+        "total": notes + trash_notes + mindmaps + mindmap_trash + settings,
+    }))
+}
+
+#[tauri::command]
+fn open_data_directory(app: AppHandle) -> Result<(), String> {
+    let dir = app_data(&app)?;
+    std::process::Command::new("explorer.exe")
+        .arg(dir.to_string_lossy().as_ref())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn list_notes(app: AppHandle) -> Result<Vec<Note>, String> {
     notes::list_notes(&app_data(&app)?)
 }
@@ -141,8 +173,21 @@ fn get_settings(app: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-fn save_settings(app: AppHandle, language: String, title: String) -> Result<(), String> {
-    settings::save(&app_data(&app)?, &Settings { language, title })
+fn save_settings(
+    app: AppHandle,
+    language: String,
+    title: String,
+    theme: Option<String>,
+) -> Result<(), String> {
+    settings::save(
+        &app_data(&app)?,
+        &Settings {
+            language,
+            title,
+            theme: theme.unwrap_or_else(|| "system".into()),
+            warnings: Vec::new(),
+        },
+    )
 }
 
 #[tauri::command]
@@ -157,6 +202,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_data_directory,
+            get_storage_warnings,
+            open_data_directory,
             list_notes,
             create_note,
             save_note,
