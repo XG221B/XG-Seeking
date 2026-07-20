@@ -27,7 +27,8 @@ const DEFAULT_NOTE_TITLE = "未命名想法";
 const DEFAULT_MINDMAP_TITLE = "未命名导图";
 
 if (!existsSync(join(distDir, "index.html"))) {
-  execFileSync("npm.cmd", ["run", "web:build"], { cwd: root, stdio: "ignore" });
+  const viteCli = join(root, "node_modules", "vite", "bin", "vite.js");
+  execFileSync(process.execPath, [viteCli, "build"], { cwd: root, stdio: "ignore" });
 }
 
 await mkdir(notesDir, { recursive: true });
